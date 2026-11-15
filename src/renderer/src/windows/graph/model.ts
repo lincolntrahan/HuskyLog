@@ -3,8 +3,12 @@
 export interface SeriesCfg {
   /** Stream id; omitted = the primary log (keeps presets portable between logs). */
   stream?: string;
-  /** Channel id, e.g. "ATT.Roll" or "IMU[1].AccZ". */
+  /** Channel id ("ATT.Roll", "IMU[1].AccZ"), or the expression source when kind is 'expr'. */
   id: string;
+  kind?: 'expr';
+  /** Optional display name and unit (used for expression series). */
+  name?: string;
+  unit?: string;
   color: string;
   axis: 'auto' | 'left' | 'right';
   visible: boolean;
@@ -28,8 +32,10 @@ export interface GraphPreset {
   format: 'huskylog-graph-preset';
   version: 1;
   name: string;
-  series: { id: string; color?: string; axis?: SeriesCfg['axis'] }[];
+  series: { id: string; kind?: 'expr'; name?: string; unit?: string; color?: string; axis?: SeriesCfg['axis'] }[];
   modeBands?: boolean;
+  /** Named expressions the series rely on, added on load if missing. */
+  named?: Record<string, string>;
 }
 
 export const BUILTIN_PRESETS: GraphPreset[] = [
@@ -40,10 +46,22 @@ export const BUILTIN_PRESETS: GraphPreset[] = [
   { format: 'huskylog-graph-preset', version: 1, name: 'Airspeed', series: [{ id: 'ARSP.Airspeed' }, { id: 'GPS.Spd' }, { id: 'CTUN.As' }] },
   { format: 'huskylog-graph-preset', version: 1, name: 'Altitude', series: [{ id: 'BARO.Alt' }, { id: 'POS.RelHomeAlt' }, { id: 'GPS.Alt' }] },
   { format: 'huskylog-graph-preset', version: 1, name: 'Throttle & RPM', series: [{ id: 'CTUN.ThO' }, { id: 'ESC.RPM', axis: 'right' }] },
+  {
+    format: 'huskylog-graph-preset', version: 1, name: 'Power & energy (expressions)',
+    named: { power_W: 'BAT.Volt * BAT.Curr' },
+    series: [
+      { id: 'power_W', kind: 'expr', name: 'Power', unit: 'W' },
+      { id: 'integrate(BAT.Curr) / 3.6', kind: 'expr', name: 'Used', unit: 'mAh', axis: 'right' },
+    ],
+  },
 ];
 
-export function presetFromCfg(name: string, cfg: GraphCfg): GraphPreset {
-  return { format: 'huskylog-graph-preset', version: 1, name, modeBands: cfg.modeBands, series: cfg.series.map((s) => ({ id: s.id, color: s.color, axis: s.axis })) };
+export function presetFromCfg(name: string, cfg: GraphCfg, named: Record<string, string> = {}): GraphPreset {
+  return {
+    format: 'huskylog-graph-preset', version: 1, name, modeBands: cfg.modeBands,
+    series: cfg.series.map((s) => ({ id: s.id, kind: s.kind, name: s.name, unit: s.unit, color: s.color, axis: s.axis })),
+    ...(Object.keys(named).length ? { named } : {}),
+  };
 }
 
 export function cfgFromPreset(p: GraphPreset): GraphCfg {
@@ -53,7 +71,11 @@ export function cfgFromPreset(p: GraphPreset): GraphCfg {
     series: p.series.map((s) => {
       const color = s.color ?? nextColor(used);
       used.push(color);
-      return { id: s.id, color, axis: s.axis ?? 'auto', visible: true };
+      const out: SeriesCfg = { id: s.id, color, axis: s.axis ?? 'auto', visible: true };
+      if (s.kind) out.kind = s.kind;
+      if (s.name) out.name = s.name;
+      if (s.unit) out.unit = s.unit;
+      return out;
     }),
   };
 }

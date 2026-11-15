@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChannelInfo } from '@core/dataflash/summary';
 import { useLogs, type ChannelRef } from '../../data/logs';
+import { useExpressions } from '../../data/expressions';
 
-interface Item { stream: string; streamName: string; c: ChannelInfo }
+interface Item { stream: string; streamName: string; c: ChannelInfo; named?: string }
 
 /** Fuzzy match: every space-separated token must appear; earlier/prefix hits rank higher. */
 function score(hay: string, id: string, tokens: string[]): number | null {
@@ -16,20 +17,28 @@ function score(hay: string, id: string, tokens: string[]): number | null {
 }
 
 export function ChannelPicker({ onPick, onClose, existing }: {
-  onPick: (r: ChannelRef, keepOpen: boolean) => void;
+  onPick: (r: ChannelRef & { named?: boolean }, keepOpen: boolean) => void;
   onClose: () => void;
   existing: Set<string>;
 }) {
   const logs = useLogs();
+  const named = useExpressions((st) => st.named);
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => inputRef.current?.focus(), []);
 
-  const items = useMemo<Item[]>(() => logs.order.flatMap((id) => {
-    const l = logs.logs[id]!;
-    return (l.summary?.channels ?? []).map((c) => ({ stream: id, streamName: l.name, c }));
-  }), [logs]);
+  const items = useMemo<Item[]>(() => {
+    const first = logs.order.find((id) => logs.logs[id]?.summary);
+    const namedItems: Item[] = first ? Object.entries(named).map(([n, def]) => ({
+      stream: first, streamName: logs.logs[first]!.name, named: def,
+      c: { id: n, type: '', instance: null, field: n, unit: '', count: 0, rateHz: 0 },
+    })) : [];
+    return [...namedItems, ...logs.order.flatMap((id) => {
+      const l = logs.logs[id]!;
+      return (l.summary?.channels ?? []).map((c) => ({ stream: id, streamName: l.name, c }));
+    })];
+  }, [logs, named]);
   const multi = logs.order.length > 1;
 
   const matches = useMemo(() => {
@@ -48,7 +57,7 @@ export function ChannelPicker({ onPick, onClose, existing }: {
 
   useEffect(() => setSel(0), [q]);
 
-  const pick = (it: Item | undefined, keep: boolean) => it && onPick({ stream: it.stream, id: it.c.id }, keep);
+  const pick = (it: Item | undefined, keep: boolean) => it && onPick({ stream: it.stream, id: it.c.id, named: !!it.named }, keep);
 
   return (
     <div className="picker" onKeyDown={(e) => {
@@ -66,9 +75,11 @@ export function ChannelPicker({ onPick, onClose, existing }: {
           return (
             <div key={key} role="option" aria-selected={k === sel} className={k === sel ? 'pick sel' : 'pick'}
               onMouseEnter={() => setSel(k)} onMouseDown={(e) => { e.preventDefault(); pick(it, e.shiftKey); }}>
+              {it.named !== undefined && <span className="sug-kind k-named" title="Named expression">≡</span>}
               <span className="pick-id">{it.c.id}</span>
+              {it.named !== undefined && <span className="pick-meta mono">{it.named}</span>}
               {it.c.label && <span className="pick-label">{it.c.label}</span>}
-              <span className="pick-meta">{it.c.unit || '—'} · {it.c.rateHz >= 1 ? `${Math.round(it.c.rateHz)} Hz` : `${it.c.count} pts`}{multi ? ` · ${it.streamName}` : ''}</span>
+              {it.named === undefined && <span className="pick-meta">{it.c.unit || '—'} · {it.c.rateHz >= 1 ? `${Math.round(it.c.rateHz)} Hz` : `${it.c.count} pts`}{multi ? ` · ${it.streamName}` : ''}</span>}
               {existing.has(key) && <span className="pick-added">added</span>}
             </div>
           );

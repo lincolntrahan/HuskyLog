@@ -142,3 +142,24 @@ table.grid tr.k-ARM td:nth-child(3) { color: #ff6b6b; }
 table.grid tr.k-ERR td:nth-child(3) { color: #ff6b6b; }
 table.grid tr.nondef td:first-child { color: #ffb000; }
 progress { width: 140px; }
+
+/* Expressions */
+.expr-modal { width: 720px; }
+.expr-field { position: relative; }
+.expr-input { width: 100%; font-size: 14px; padding: 8px 10px !important; }
+.expr-underline { position: absolute; left: 11px; top: 8px; font-size: 14px; pointer-events: none; white-space: pre; color: transparent; }
+.squiggle { text-decoration: underline wavy #ff6b6b; text-underline-offset: 4px; }
+.expr-suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 50; max-height: 240px; overflow: auto; background: var(--bg-2); border: 1px solid var(--border); border-radius: 0 0 6px 6px; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+.expr-msg { min-height: 20px; margin: 6px 0; font-size: 12px; }
+.expr-msg.ok { color: var(--ok); }
+.expr-sig { font-size: 12px; }
+.expr-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.expr-row label { display: inline-flex; gap: 6px; align-items: center; }
+.expr-help { margin-top: 6px; font-size: 12px; }
+.expr-help summary { cursor: pointer; color: var(--fg-dim); }
+.fn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; max-height: 180px; overflow: auto; margin-top: 6px; }
+.sug-kind { display: inline-block; width: 16px; text-align: center; color: var(--fg-dim); }
+.sug-kind.k-function { color: #c792ea; }
+.sug-kind.k-named { color: #3ddc97; }
+.sug-kind.k-channel { color: #4ea1ff; }
+.expr-msg.hint { color: #c792ea; }

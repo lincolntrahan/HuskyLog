@@ -9,8 +9,13 @@ import { fmtTime, timeDomain, useTimeline } from '../../data/timeline';
 import { ChannelPicker } from './ChannelPicker';
 import { DEFAULT_GRAPH, modeColor, nextColor, type GraphCfg, type SeriesCfg } from './model';
 import { ExportDialog, PresetMenu, StatsTable } from './GraphParts';
+import { ExpressionEditor, type ExprDraft } from './ExpressionEditor';
+import { loadExpression, useExpressions } from '../../data/expressions';
 
-export interface ResolvedSeries { cfg: SeriesCfg; ref: ChannelRef; data: LoadedChannel | null; missing: boolean; axis: 'left' | 'right'; label: string }
+export interface ResolvedSeries {
+  cfg: SeriesCfg; ref: ChannelRef; key: string; data: LoadedChannel | null;
+  missing: boolean; isExpr: boolean; error?: string; axis: 'left' | 'right'; label: string;
+}
 
 const AXIS = '#8a94a3', GRID = '#2a313b', PLAYHEAD = '#ffcc00';
 
@@ -23,7 +28,11 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
 
   const logs = useLogs();
   const primary = primaryLog();
+  const named = useExpressions((s) => s.named);
+  const exprVersion = useExpressions((s) => s.version);
   const [loaded, setLoaded] = useState<Record<string, LoadedChannel | null>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [exprEdit, setExprEdit] = useState<{ index: number | null } | null>(null);
   const [picker, setPicker] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [xRange, setXRange] = useState<[number, number] | null>(null);
@@ -36,40 +45,54 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
     const units: string[] = [];
     const base = cfg.series.map((s) => {
       const ref = { stream: s.stream ?? primary?.id ?? '', id: s.id };
-      const data = loaded[refKey(ref)] ?? null;
+      // Expression results depend on named-expression edits, so the version is part of the key.
+      const key = s.kind === 'expr' ? `${ref.stream}|expr|${s.id}|${s.unit ?? ''}|v${exprVersion}` : refKey(ref);
+      const data = loaded[key] ?? null;
       if (s.visible && data && !units.includes(data.unit)) units.push(data.unit);
-      return { s, ref, data };
+      return { s, ref, key, data };
     });
     const [left, right] = units;
     const multi = logs.order.length > 1;
-    return base.map(({ s, ref, data }) => {
+    return base.map(({ s, ref, key, data }) => {
       const unit = data?.unit ?? '';
       const axis = s.axis !== 'auto' ? s.axis : right !== undefined && unit === right && unit !== left ? 'right' : 'left';
       const streamName = multi ? `${logs.logs[ref.stream]?.name ?? '?'}: ` : '';
+      const ready = !!ref.stream && logs.logs[ref.stream]?.status === 'ready';
+      const isExpr = s.kind === 'expr';
+      const label = isExpr ? `ƒ ${s.name || s.id}` : `${s.id}${data?.info?.label ? ` (${data.info.label})` : ''}`;
       return {
-        cfg: s, ref, data, axis,
-        missing: !!ref.stream && logs.logs[ref.stream]?.status === 'ready' && !channelExists(ref),
-        label: `${streamName}${s.id}${data?.info?.label ? ` (${data.info.label})` : ''}`,
+        cfg: s, ref, key, data, axis, isExpr,
+        error: errors[key],
+        missing: ready && (isExpr ? !!errors[key] : !channelExists(ref)),
+        label: `${streamName}${label}`,
       };
     });
-  }, [cfg, loaded, primary?.id, logs]);
+  }, [cfg, loaded, errors, primary?.id, logs, exprVersion]);
 
   useEffect(() => {
     for (const r of resolved) {
-      const k = refKey(r.ref);
-      if (!r.ref.stream || k in loaded || r.missing) continue;
+      const k = r.key;
+      if (!r.ref.stream || k in loaded || k in errors) continue;
       if (logs.logs[r.ref.stream]?.status !== 'ready') continue;
+      if (!r.isExpr && r.missing) continue;
       setLoaded((m) => ({ ...m, [k]: null }));
-      void loadChannel(r.ref).then((d) => setLoaded((m) => ({ ...m, [k]: d })));
+      const p = r.isExpr ? loadExpression(r.ref.stream, r.cfg.id, named, r.cfg.unit ?? '') : loadChannel(r.ref);
+      void p.then(
+        (d) => setLoaded((m) => ({ ...m, [k]: d })),
+        (e: unknown) => {
+          setErrors((m) => ({ ...m, [k]: e instanceof Error ? e.message : String(e) }));
+          setLoaded((m) => { const n = { ...m }; delete n[k]; return n; });
+        },
+      );
     }
-  }, [resolved, loaded, logs]);
+  }, [resolved, loaded, errors, logs, named]);
 
   const visible = resolved.filter((r) => r.cfg.visible && r.data);
   const domain = useMemo<[number, number]>(() => {
     let a = Infinity, b = -Infinity;
     for (const r of visible) { a = Math.min(a, r.data!.t[0]!); b = Math.max(b, r.data!.t[r.data!.t.length - 1]!); }
     return Number.isFinite(a) ? [a, b] : timeDomain();
-  }, [visible.map((r) => refKey(r.ref)).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible.map((r) => r.key).join()]); // eslint-disable-line react-hooks/exhaustive-deps
   const view = xRange ?? domain;
 
   // ---- uPlot ----
@@ -78,7 +101,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   const stateRef = useRef({ view, domain, visible, modes: primary?.summary?.modes ?? [], armed: primary?.summary?.armed ?? [], modeBands: cfg.modeBands });
   stateRef.current = { view, domain, visible, modes: primary?.summary?.modes ?? [], armed: primary?.summary?.armed ?? [], modeBands: cfg.modeBands };
 
-  const structure = visible.map((r) => `${refKey(r.ref)}:${r.cfg.color}:${r.axis}`).join('|');
+  const structure = visible.map((r) => `${r.key}:${r.cfg.color}:${r.axis}`).join('|');
   const leftUnits = [...new Set(visible.filter((r) => r.axis === 'left').map((r) => r.data!.unit).filter(Boolean))].join(', ');
   const rightUnits = [...new Set(visible.filter((r) => r.axis === 'right').map((r) => r.data!.unit).filter(Boolean))].join(', ');
   const hasRight = visible.some((r) => r.axis === 'right');
@@ -252,7 +275,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   };
 
   // ---- series editing ----
-  const existing = new Set(resolved.map((r) => refKey(r.ref)));
+  const existing = new Set(resolved.filter((r) => !r.isExpr).map((r) => refKey(r.ref)));
   const addRef = (r: ChannelRef) => {
     if (existing.has(refKey(r))) return;
     const s: SeriesCfg = { id: r.id, color: nextColor(cfg.series.map((x) => x.color)), axis: 'auto', visible: true };
@@ -261,6 +284,36 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   };
   const update = (i: number, p: Partial<SeriesCfg>) => setCfg({ ...cfg, series: cfg.series.map((s, k) => (k === i ? { ...s, ...p } : s)) });
   const remove = (i: number) => setCfg({ ...cfg, series: cfg.series.filter((_, k) => k !== i) });
+  const addNamedRef = (name: string, stream: string) => {
+    if (cfg.series.some((x) => x.kind === 'expr' && x.id === name)) return;
+    const s: SeriesCfg = { id: name, kind: 'expr', color: nextColor(cfg.series.map((x) => x.color)), axis: 'auto', visible: true };
+    if (stream !== primary?.id) s.stream = stream;
+    setCfg({ ...cfg, series: [...cfg.series, s] });
+  };
+  const saveExpr = (d: ExprDraft) => {
+    const idx = exprEdit?.index ?? null;
+    let id = d.src;
+    if (d.saveAsNamed && d.name) {
+      useExpressions.getState().setNamed(d.name, d.src);
+      id = d.name; // the series refers to the named expression
+    }
+    const prev = idx !== null ? cfg.series[idx] : undefined;
+    const s: SeriesCfg = {
+      ...(prev ?? { color: nextColor(cfg.series.map((x) => x.color)), axis: 'auto', visible: true }),
+      id, kind: 'expr',
+      ...(d.name && !d.saveAsNamed ? { name: d.name } : { name: undefined }),
+      ...(d.unit ? { unit: d.unit } : { unit: undefined }),
+    };
+    setErrors({});
+    setCfg({ ...cfg, series: idx !== null ? cfg.series.map((x, k) => (k === idx ? s : x)) : [...cfg.series, s] });
+    setExprEdit(null);
+  };
+  const editing = exprEdit?.index != null ? cfg.series[exprEdit.index] : undefined;
+  const editInitial: Partial<ExprDraft> | undefined = editing
+    ? (editing.id in named
+      ? { src: named[editing.id], name: editing.id, unit: editing.unit ?? '', saveAsNamed: true }
+      : { src: editing.id, name: editing.name ?? '', unit: editing.unit ?? '', saveAsNamed: false })
+    : undefined;
 
   const readT = hoverT ?? playT;
   const fmtVal = (v: number) => (Number.isNaN(v) ? '–' : Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(2) : v.toPrecision(4));
@@ -270,7 +323,8 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
     <div className="hl-panel graph" tabIndex={0} onKeyDown={onKey}>
       <div className="graph-bar">
         <button onClick={() => setPicker((p) => !p)} title="Add a channel (search)">＋ Add</button>
-        <PresetMenu cfg={cfg} onApply={setCfg} />
+        <button onClick={() => setExprEdit({ index: null })} disabled={!primary} title="Add a math expression, e.g. ATT.Roll - ATT.DesRoll">ƒx Expression</button>
+        <PresetMenu cfg={cfg} onApply={(c) => { setErrors({}); setCfg(c); }} />
         <button onClick={() => setXRange(null)} disabled={!xRange} title="Show the whole log (double-click the plot)">Fit</button>
         <button onClick={() => range && setXRange(range)} disabled={!range} title="Zoom to the selected range (Z)">Zoom to selection</button>
         <button onClick={() => setExporting(true)} disabled={!range || !visible.length} title="Export the selected range as CSV">Export CSV…</button>
@@ -279,13 +333,14 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
       </div>
       <div className="legend">
         {resolved.map((r, i) => (
-          <div key={refKey(r.ref)} className={`chip${r.cfg.visible ? '' : ' off'}${r.missing ? ' missing' : ''}`} title={r.missing ? 'This channel is not in the current log' : r.label}>
+          <div key={r.key} className={`chip${r.cfg.visible ? '' : ' off'}${r.missing ? ' missing' : ''}`} title={r.error ?? (r.missing ? 'This channel is not in the current log' : r.isExpr ? r.cfg.id : r.label)}>
             <input type="color" value={r.cfg.color} onChange={(e) => update(i, { color: e.target.value })} aria-label={`Colour of ${r.cfg.id}`} />
             <span className="chip-name" onClick={() => update(i, { visible: !r.cfg.visible })}>{r.label}</span>
-            <span className="chip-val">{r.data ? `${fmtVal(interpAt(r.data, readT, 5 * medianDt(r.data.t) || Infinity))} ${r.data.unit}` : r.missing ? 'missing' : '…'}</span>
+            <span className="chip-val">{r.data ? `${fmtVal(interpAt(r.data, readT, 5 * medianDt(r.data.t) || Infinity))} ${r.data.unit}` : r.error ? 'error' : r.missing ? 'missing' : '…'}</span>
             <button className="chip-axis" title="Axis: auto / left / right" onClick={() => update(i, { axis: r.cfg.axis === 'auto' ? 'left' : r.cfg.axis === 'left' ? 'right' : 'auto' })}>
               {r.cfg.axis === 'auto' ? (r.axis === 'right' ? 'R' : 'L') + '·' : r.cfg.axis === 'left' ? 'L' : 'R'}
             </button>
+            {r.isExpr && <button className="chip-edit" title="Edit expression" onClick={() => setExprEdit({ index: i })}>✎</button>}
             <button className="chip-x" title="Remove" onClick={() => remove(i)}>×</button>
           </div>
         ))}
@@ -299,8 +354,12 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
       </div>
       {picker && (
         <div className="overlay-pop">
-          <ChannelPicker existing={existing} onClose={() => setPicker(false)} onPick={(r, keep) => { addRef(r); if (!keep) setPicker(false); }} />
+          <ChannelPicker existing={existing} onClose={() => setPicker(false)}
+            onPick={(r, keep) => { if (r.named) addNamedRef(r.id, r.stream); else addRef(r); if (!keep) setPicker(false); }} />
         </div>
+      )}
+      {exprEdit && primary && (
+        <ExpressionEditor stream={editing?.stream ?? primary.id} initial={editInitial} onCancel={() => setExprEdit(null)} onDone={saveExpr} />
       )}
       {exporting && range && <ExportDialog series={visible} range={range} logName={primary?.name ?? 'log'} onClose={() => setExporting(false)} />}
     </div>
