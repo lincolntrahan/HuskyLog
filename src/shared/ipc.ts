@@ -49,7 +49,7 @@ export interface MapProgress {
   finished: boolean; cancelled: boolean; error?: string;
 }
 
-export interface HuskyLogApi extends WorkspaceApi {
+export interface HuskyLogApi extends WorkspaceApi, UpdateApi {
   /** Native "open files" dialog. Each chosen file is allow-listed for hl-file://. */
   openFiles(): Promise<OpenedFile[]>;
   /** App version and runtime info, for the about box and diagnostics. */
@@ -168,3 +168,25 @@ export const WS_IPC = {
   setDirty: 'ws:set-dirty', saved: 'ws:saved-before-close', e2e: 'ws:e2e-dialogs',
   exportPick: 'export:pick', exportWriteFile: 'export:write-file', exportWriteMp4: 'export:write-mp4',
 } as const;
+
+// ---- Updates (electron-updater, GitHub Releases) ----
+export interface UpdateStatus {
+  state: 'idle' | 'disabled' | 'checking' | 'current' | 'downloading' | 'ready' | 'error';
+  version: string;            // running version
+  available?: string;         // newer version found
+  percent?: number;
+  notes?: string;
+  error?: string;
+  checked?: string;
+  /** The user asked (File → Check for updates) rather than the launch check. */
+  manual?: boolean;
+  enabled?: boolean;
+}
+export interface UpdateApi {
+  updateStatus(): Promise<UpdateStatus>;
+  checkForUpdates(): Promise<UpdateStatus>;
+  /** Quits, installs the downloaded update silently and relaunches. */
+  installUpdate(): Promise<boolean>;
+  onUpdateStatus(cb: (s: UpdateStatus) => void): () => void;
+}
+export const UPDATE_IPC = { get: 'update:get', check: 'update:check', install: 'update:install', status: 'update:status' } as const;

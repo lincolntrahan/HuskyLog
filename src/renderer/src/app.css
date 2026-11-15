@@ -279,3 +279,12 @@ progress { width: 140px; }
 .ex-row > b { width: 70px; color: var(--fg-dim); font-weight: normal; }
 .ex-preview canvas { width: 360px; background: #000; border: 1px solid var(--border); display: block; }
 .spacer { flex: 1; }
+
+/* Updates */
+.update-notice { display: inline-flex; gap: 10px; align-items: center; position: relative; }
+.update-ready { display: inline-flex; gap: 8px; align-items: center; color: var(--fg); }
+.update-ready button { padding: 1px 8px; font-size: 12px; }
+.linkish { background: none; border: none; color: var(--accent); padding: 0; text-decoration: underline; }
+.update-notes { position: absolute; bottom: 24px; left: 0; z-index: 60; width: 420px; max-height: 320px; overflow: auto; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; display: grid; gap: 6px; }
+.update-notes pre { white-space: pre-wrap; font: 12px/1.4 Segoe UI, sans-serif; margin: 0; }
+.status-left { display: inline-flex; gap: 14px; align-items: center; }

@@ -4,6 +4,7 @@ import { ImportTab } from './tabs/ImportTab';
 import { SyncTab } from './tabs/SyncTab';
 import { ReviewTab } from './tabs/ReviewTab';
 import { FileMenu } from './workspace/FileMenu';
+import { UpdateNotice } from './workspace/Updates';
 
 const TABS: { id: AppTab; label: string }[] = [
   { id: 'import', label: 'Import' },
@@ -42,7 +43,7 @@ export function App() {
         <section className="pane" hidden={tab !== 'review'}><ReviewTab /></section>
       </main>
       <footer className="statusbar">
-        <span>v{version}</span>
+        <span className="status-left"><span>v{version}</span><UpdateNotice /></span>
         <span className="offline" title="All network access is blocked except explicit map downloads">
           ● Offline mode{blocked ? ` — ${blocked} request(s) blocked` : ''}
         </span>

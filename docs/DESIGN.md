@@ -1140,3 +1140,31 @@ Phases 0–6 harnesses still pass.
   4K exports sharper.
 - Proxies for videos a machine can't decode (the export encoder makes them
   possible now).
+
+## Appendix I. Distribution and updates (2026-11-15)
+
+- **Installer:** NSIS per-user (no admin), unsigned for now (SmartScreen asks
+  once on first install). File associations `.hlpack` / `.hlws`.
+- **Releases:** GitHub Releases of this repo. `.github/workflows/build.yml`
+  builds every push and PR (installer as an artifact). On a `vX.Y.Z` tag it
+  checks that the tag matches `package.json`, runs typecheck and unit tests,
+  and publishes the installer, blockmap and `latest.yml`.
+  `npm run release:patch|minor` bumps, tags and pushes.
+- **Updater** (`src/main/updater.ts`, electron-updater):
+  - one quiet check about 8 s after launch, from the main process on
+    electron-updater's own session partition, so the renderer stays behind
+    the offline guard;
+  - offline failures are logged to `%APPDATA%/HuskyLog/logs/updater.log` and
+    shown only for a manual check (File → Check for updates…);
+  - updates download in the background (incremental via blockmaps when
+    possible);
+  - "Restart to update" asks to save, then installs silently and relaunches;
+    otherwise the update installs on the next quit;
+  - disabled in development and test runs; `HUSKYLOG_UPDATE_URL` points at a
+    test feed.
+- **Verified:** a packaged 0.0.1 app against a local feed serving a 0.0.2
+  build finds it, downloads it and offers Restart to update. Offline, the
+  launch check is silent and a manual check reports it. The final install
+  step was not exercised on this machine.
+- **Later:** code signing (Azure Trusted Signing or an OV certificate, added to
+  the workflow) and an app icon (the default Electron icon is used today).

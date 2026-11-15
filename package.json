@@ -24,7 +24,9 @@
     "e2e:phase5": "node scripts/e2e-phase5.mjs",
     "e2e:phase6": "node scripts/e2e-phase6.mjs",
     "e2e:phase7": "node scripts/e2e-phase7.mjs",
-    "gen:syncvideo": "node scripts/gen-sync-video.mjs"
+    "gen:syncvideo": "node scripts/gen-sync-video.mjs",
+    "release:patch": "npm version patch && git push --follow-tags",
+    "release:minor": "npm version minor && git push --follow-tags"
   },
   "devDependencies": {
     "@cesium/core": "^0.1.1",
@@ -53,5 +55,8 @@
   "allowScripts": {
     "ffmpeg-static@5.3.0": true,
     "electron-winstaller": false
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }
