@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOverlays } from '../overlay/model';
 import { installGlobalKeys } from '../keys';
+import { ExportDialog, useExportUi } from '../export/ExportDialog';
 import {
   DockviewReact, themeAbyss,
   type DockviewApi, type DockviewReadyEvent, type IDockviewHeaderActionsProps, type IDockviewPanelProps,
@@ -120,6 +121,8 @@ export function ReviewTab() {
         <button onClick={() => add('messages')}>Messages</button>
         <button onClick={() => add('params')}>Parameters</button>
         <button onClick={() => add('adi')}>Horizon</button>
+        <span className="spacer" />
+        <button onClick={() => useExportUi.setState({ open: true })} title="Export the windows as an MP4 or GIF">Export video…</button>
       </div>
       <div className="dock">
         <DockviewReact
@@ -131,6 +134,7 @@ export function ReviewTab() {
         />
       </div>
       <TimelineBar />
+      <ExportDialog />
     </div>
   );
 }

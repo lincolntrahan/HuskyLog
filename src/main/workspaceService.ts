@@ -27,7 +27,7 @@ const PACK_FORMAT = 'huskylog-pack';
 let pending: OpenedSession | null = null;
 let dirty = false;
 let forceClose = false;
-const e2e: { open?: string; save?: string; pack?: string; locate?: string; closeChoice?: number } = {};
+const e2e: { open?: string; save?: string; pack?: string; locate?: string; export?: string; closeChoice?: number } = {};
 const temps = new Map<string, string>();
 let packCancelled = false;
 
@@ -372,4 +372,41 @@ export function registerWorkspaceIpc(): void {
   ipcMain.handle(WS_IPC.cancel, () => { packCancelled = true; });
   ipcMain.handle(WS_IPC.setDirty, (_e, d: boolean) => { dirty = d; });
   ipcMain.handle(WS_IPC.e2e, (_e, paths: typeof e2e) => { if (E2E) Object.assign(e2e, paths); });
+}
+
+// ------------------------------------------------------------------ export (DESIGN §10)
+
+/** Paths the user picked in an export save dialog; the renderer may only write those. */
+const exportTargets = new Set<string>();
+
+export function registerExportIpc(): void {
+  ipcMain.handle(WS_IPC.exportPick, async (e, defaultName: string, kind: 'mp4' | 'gif') => {
+    let p: string | null = null;
+    if (E2E && e2e.export) { p = e2e.export; delete e2e.export; }
+    else {
+      const r = await dialog.showSaveDialog(sender(e)!, { defaultPath: defaultName, filters: [kind === 'gif' ? { name: 'GIF animation', extensions: ['gif'] } : { name: 'MP4 video', extensions: ['mp4'] }] });
+      p = r.canceled || !r.filePath ? null : r.filePath;
+    }
+    if (p) exportTargets.add(resolve(p).toLowerCase());
+    return p;
+  });
+  const allowed = (p: string) => exportTargets.has(resolve(p).toLowerCase());
+  ipcMain.handle(WS_IPC.exportWriteFile, async (_e, path: string, data: Uint8Array) => {
+    if (!allowed(path)) throw new Error('Not an export target');
+    await writeFile(path, data);
+    return statSync(path).size;
+  });
+  ipcMain.handle(WS_IPC.exportWriteMp4, async (_e, path: string, spec: Omit<Extract<PackEntrySpec, { kind: 'mp4' }>, 'kind' | 'name'>) => {
+    if (!allowed(path)) throw new Error('Not an export target');
+    const fh = await open(`${path}.partial`, 'w');
+    try {
+      for await (const c of mp4Chunks({ kind: 'mp4', name: '', ...spec })) await fh.write(c);
+    } finally {
+      await fh.close();
+      if (spec.enc) { const t = temps.get(spec.enc); temps.delete(spec.enc); if (t) await rm(t, { force: true }).catch(() => undefined); }
+    }
+    await rm(path, { force: true });
+    await rename(`${path}.partial`, path);
+    return statSync(path).size;
+  });
 }

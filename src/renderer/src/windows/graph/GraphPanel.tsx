@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../../overlay/OverlayLayer';
+import { registerExportSource } from '../../export/registry';
 import type { OverlayItem } from '../../overlay/model';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -104,6 +105,33 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   }, [resolved, loaded, errors, logs, named]);
 
   const visible = resolved.filter((r) => r.cfg.visible && r.data);
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  // Export: the plot canvas as drawn (playhead at the export time), plus a legend with values.
+  useEffect(() => registerExportSource({
+    id: api.id, type: 'graph', title: api.title ?? 'Graph', content: () => hostRef.current?.parentElement ?? null,
+    draw: async (c, t, w, h) => {
+      const u = plotRef.current;
+      c.fillStyle = '#14171c'; c.fillRect(0, 0, w, h);
+      if (!u) return;
+      u.redraw(false);
+      c.drawImage(u.ctx.canvas, 0, 0, w, h);
+      const rows = visibleRef.current.map((r) => ({ color: r.cfg.color, text: `${r.label}  ${fmtLegend(interpAt(r.data!, t, 5 * medianDt(r.data!.t) || Infinity))} ${r.data!.unit}`.trim() }));
+      if (!rows.length) return;
+      const fs = Math.max(10, Math.round(h * 0.035)), pad = fs * 0.5;
+      c.font = `${fs}px Segoe UI, sans-serif`;
+      const bw = Math.max(...rows.map((r) => c.measureText(r.text).width)) + fs * 1.6 + pad * 2;
+      const x0 = (u.bbox.left / u.ctx.canvas.width) * w + pad, y0 = (u.bbox.top / u.ctx.canvas.height) * h + pad;
+      c.fillStyle = 'rgba(20, 23, 28, 0.78)';
+      c.fillRect(x0, y0, bw, rows.length * fs * 1.35 + pad * 1.2);
+      c.textBaseline = 'middle';
+      rows.forEach((r, i) => {
+        const cy = y0 + pad + fs * 1.35 * (i + 0.5);
+        c.fillStyle = r.color; c.fillRect(x0 + pad, cy - fs * 0.3, fs * 0.8, fs * 0.6);
+        c.fillStyle = '#d7dce3'; c.fillText(r.text, x0 + pad + fs * 1.2, cy);
+      });
+    },
+  }), [api.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const domain = useMemo<[number, number]>(() => {
     let a = Infinity, b = -Infinity;
     for (const r of visible) { a = Math.min(a, r.data!.t[0]!); b = Math.max(b, r.data!.t[r.data!.t.length - 1]!); }
@@ -383,3 +411,5 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
 }
 
 export { rangeStats };
+
+const fmtLegend = (v: number) => (Number.isNaN(v) ? '–' : Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(2) : v.toPrecision(4));

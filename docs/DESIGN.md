@@ -538,20 +538,28 @@ csv1.Thrust_N / (BAT.Volt * BAT.Curr)
 
 **Pipeline** (deterministic offline render, not screen capture):
 
-1. For each frame time `t`, set an **export clock** to `t`. This doesn't move the
-   user's live playhead.
-2. For each selected window, call `await drawFrame(ctx, t, rect)`, then its
-   overlays.
-   - Video uses WebCodecs to decode the exact frame at `mapping⁻¹(t)`.
-   - Cesium waits for `globe.tilesLoaded`, then copies its canvas.
-   - Graph and ADI draw directly.
-3. Composite onto an `OffscreenCanvas`, then send the RGBA frame over IPC to
-   ffmpeg's stdin in main.
-4. **MP4:** H.264 via Windows Media Foundation (`h264_mf`) or OpenH264. It
-   includes an audio track from a chosen video stream, trimmed and offset to match.
-5. **GIF:** two-pass `palettegen` / `paletteuse`.
-6. A progress dialog shows ETA and a cancel button. Faster than real time
-   isn't required. Correctness comes first.
+1. For each frame time `t`, the playhead is set to `t` (paused). The user's
+   playhead and play state are restored afterwards, and the modal dialog
+   blocks interaction meanwhile.
+2. For each selected window, `await source.draw(ctx, t, w, h)` (the window's
+   registered export source, `export/registry.ts`), then its overlays with the
+   shared `drawOverlays`.
+   - Video decodes the exact frame at `mapping⁻¹(t)` with WebCodecs, then
+     repeats the window's letterbox, rotation and zoom crop.
+   - Cesium renders the pose for `t` and copies its canvas right after a render
+     once `globe.tilesLoaded` (5 s cap per frame).
+   - The graph copies its plot (playhead at `t`) and adds a legend with values.
+     The ADI draws the vector instrument at output size.
+3. Composite onto an `OffscreenCanvas`.
+4. **MP4:** WebCodecs `VideoEncoder` (platform H.264; "quality" mode with
+   B-frame-aware timing, falling back to "realtime"), muxed by the app's MP4
+   writer. Audio from a chosen video stream is copied (no re-encode), trimmed
+   and offset to match. No ffmpeg.
+5. **GIF:** our own encoder (`core/export/gif.ts`). One palette for the whole
+   clip (exact when ≤ 256 colours, else median cut), changed-rectangle
+   frames, LZW.
+6. A progress dialog shows frames, ETA and a cancel button. Faster than real
+   time isn't required. Correctness comes first.
 
 ---
 
@@ -1071,3 +1079,64 @@ Phases 0–5 harnesses still pass.
   every open is not worth it). A "Verify pack" command could use them.
 - Subsetting map areas to the flight bbox (whole areas are copied today).
 - Recent files list.
+
+## Appendix H. Phase 7 Results (2026-11-15)
+
+**Delivered:**
+- **Export video…** on the Review toolbar opens a dialog:
+  - windows: Map, Video, Graph and Horizon, any combination;
+  - layout: as on screen, grid (auto columns), or picture-in-picture (the
+    first window chosen is the main picture);
+  - time range (defaults to the selection, else 10 s from the playhead);
+  - MP4 at 720p, 1080p, 4K or a custom size, 24–60 fps, with optional audio
+    from a synced video;
+  - GIF ≤ 10 s at 480/640/800 px and 10–20 fps;
+  - a live preview of the composite at the playhead, plus frames, ETA and
+    Cancel while exporting.
+- **Window draw functions** (the `drawFrame` of §7) for the Video, 3D Map,
+  Graph and Horizon windows, registered per window. Overlays are drawn by
+  the same code as on screen.
+- **Shared H.264 path** (`video/h264.ts`): level picked from size and rate;
+  "quality" mode, with decode times rebuilt and an edit list when the encoder
+  uses B-frames. Pack & Go's re-encode now uses it too and got twice as fast
+  (35 s of 720p in 14 s, was 30 s).
+- **GIF encoder** with no dependency: exact palette for UI-style images,
+  changed-rectangle frames, delays that keep the exact average rate.
+- Writes go only to the path chosen in the save dialog (main keeps the list).
+
+**Verified:** 3 new unit tests (81 total). The GIF encoder is checked by an
+independent decoder, including LZW dictionary resets, exact colours, changed
+rectangles and timing. `scripts/e2e-phase7.mjs` (21 checks, secondary
+monitor) decodes the exported files back:
+- **done-when:** a 60 s 1080p30 composite (video with HUD horizon and readout
+  overlays + graph, with audio) exports at 27 frames/s. The file is H.264
+  1920×1080 with exactly 1800 frames at exact times, and AAC audio.
+- the flash at log 400 s is on exported frame 1560/1561 (frame-exact), the
+  audio beep is 19 ms from it, and the HUD, readout and graph legend are
+  present;
+- picture-in-picture with the 3D map drawn from offline tiles;
+- the as-on-screen layout keeps positions and proportions;
+- the GIF (5 s, 15 fps, 640×360) has 75 frames, lasts 5.00 s and is in sync;
+- GIF is refused over 10 s;
+- cancel leaves no file and restores the playhead;
+- no network requests.
+
+Phases 0–6 harnesses still pass.
+
+**Design changes:**
+- **No ffmpeg anywhere** (it was planned for export and proxies). Encoding is
+  WebCodecs plus our MP4 writer; GIF is our own encoder. The installer stays
+  free of a GPL binary.
+- Export drives the real playhead (paused, then restored) instead of a
+  separate export clock, so every window renders through its normal path.
+- The Messages and Parameters tables are not exportable.
+
+**Deferred:**
+- Audio drift: copied audio is not resampled, so with a clock difference
+  of a = 1.0003 it drifts 0.3 ms per second of export (18 ms over 60 s). A
+  per-export resample would remove it.
+- Map and graph are copied at their on-screen resolution and scaled; drawing
+  them at the output size (offscreen Cesium, an offscreen uPlot) would make
+  4K exports sharper.
+- Proxies for videos a machine can't decode (the export encoder makes them
+  possible now).

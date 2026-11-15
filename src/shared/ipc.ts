@@ -155,11 +155,16 @@ export interface WorkspaceApi {
   /** An .hlws/.hlpack was opened from Explorer while running. */
   onOpenRequest(cb: (path: string) => void): () => void;
   /** Test hooks (HUSKYLOG_E2E=1): next dialog answers. */
-  e2eSetDialogPaths(paths: { open?: string; save?: string; pack?: string; locate?: string; closeChoice?: number }): Promise<void>;
+  e2eSetDialogPaths(paths: { open?: string; save?: string; pack?: string; locate?: string; export?: string; closeChoice?: number }): Promise<void>;
+  /** Export (DESIGN §10): save dialog, then write only to the chosen path. */
+  exportPickPath(defaultName: string, kind: 'mp4' | 'gif'): Promise<string | null>;
+  exportWriteFile(path: string, data: Uint8Array): Promise<number>;
+  exportWriteMp4(path: string, spec: { src: string; enc?: string; head: Uint8Array; moov: Uint8Array; runs: PackRun[] }): Promise<number>;
 }
 
 export const WS_IPC = {
   pick: 'ws:pick', open: 'ws:open', new: 'ws:new', boot: 'ws:boot', save: 'ws:save', locate: 'ws:locate',
   pickPack: 'pack:pick', tempCreate: 'pack:temp-create', tempWrite: 'pack:temp-write', write: 'pack:write', cancel: 'pack:cancel',
   setDirty: 'ws:set-dirty', saved: 'ws:saved-before-close', e2e: 'ws:e2e-dialogs',
+  exportPick: 'export:pick', exportWriteFile: 'export:write-file', exportWriteMp4: 'export:write-mp4',
 } as const;

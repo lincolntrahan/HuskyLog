@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../overlay/OverlayLayer';
+import { registerExportSource } from '../export/registry';
+import { drawVideoAt } from '../export/videoDraw';
 import { useOverlays, type OverlayItem } from '../overlay/model';
 import { NO_ZOOM, panBy, zoomAt, zoomTransform, type VideoZoom } from '@core/overlay/zoom';
 import { useMedia, mediaSource } from '../data/media';
@@ -75,6 +77,12 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
   const ready = media.order.filter((id) => media.videos[id]?.status === 'ready');
   const newest = ready[ready.length - 1];
   const stream = cfg.stream && media.videos[cfg.stream] ? cfg.stream : newest;
+  const streamRef = useRef(stream);
+  streamRef.current = stream;
+  useEffect(() => registerExportSource({
+    id: api.id, type: 'video', title: api.title ?? 'Video', content: () => stageRef.current,
+    draw: (c, t, w, h) => drawVideoAt(c, streamRef.current, cfgRef.current.zoom, t, w, h),
+  }), [api.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!cfg.stream && newest) setCfg({ ...cfg, stream: newest }); }, [newest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const v = stream ? media.videos[stream] : undefined;
