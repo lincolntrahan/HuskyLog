@@ -11,6 +11,19 @@ import { DEFAULT_GRAPH, modeColor, nextColor, type GraphCfg, type SeriesCfg } fr
 import { ExportDialog, PresetMenu, StatsTable } from './GraphParts';
 import { ExpressionEditor, type ExprDraft } from './ExpressionEditor';
 import { loadExpression, useExpressions } from '../../data/expressions';
+import { streamSolution, useSync } from '../../data/sync';
+
+/** Maps a non-reference log's local times onto the master timeline (cached per mapping). */
+const mapped = new WeakMap<LoadedChannel, { a: number; b: number; out: LoadedChannel }>();
+function toMasterTime(stream: string, d: LoadedChannel | null): LoadedChannel | null {
+  const s = streamSolution(stream);
+  if (!d || !s || s.status !== 'synced' || (s.a === 1 && s.b === 0)) return d;
+  const hit = mapped.get(d);
+  if (hit && hit.a === s.a && hit.b === s.b) return hit.out;
+  const out = { ...d, t: d.t.map((x) => s.a * x + s.b) };
+  mapped.set(d, { a: s.a, b: s.b, out });
+  return out;
+}
 
 export interface ResolvedSeries {
   cfg: SeriesCfg; ref: ChannelRef; key: string; data: LoadedChannel | null;
@@ -30,6 +43,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   const primary = primaryLog();
   const named = useExpressions((s) => s.named);
   const exprVersion = useExpressions((s) => s.version);
+  const syncSolution = useSync((s) => s.solution);
   const [loaded, setLoaded] = useState<Record<string, LoadedChannel | null>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [exprEdit, setExprEdit] = useState<{ index: number | null } | null>(null);
@@ -47,7 +61,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
       const ref = { stream: s.stream ?? primary?.id ?? '', id: s.id };
       // Expression results depend on named-expression edits, so the version is part of the key.
       const key = s.kind === 'expr' ? `${ref.stream}|expr|${s.id}|${s.unit ?? ''}|v${exprVersion}` : refKey(ref);
-      const data = loaded[key] ?? null;
+      const data = toMasterTime(ref.stream, loaded[key] ?? null);
       if (s.visible && data && !units.includes(data.unit)) units.push(data.unit);
       return { s, ref, key, data };
     });
@@ -67,7 +81,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
         label: `${streamName}${label}`,
       };
     });
-  }, [cfg, loaded, errors, primary?.id, logs, exprVersion]);
+  }, [cfg, loaded, errors, primary?.id, logs, exprVersion, syncSolution]);
 
   useEffect(() => {
     for (const r of resolved) {

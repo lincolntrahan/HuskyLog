@@ -1,5 +1,6 @@
 import { useApp } from '../store';
 import { useLogs } from '../data/logs';
+import { useMedia } from '../data/media';
 import { fmtTime } from '../data/timeline';
 
 const fmtSize = (n: number) => (n > 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`);
@@ -7,13 +8,14 @@ const fmtSize = (n: number) => (n > 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n /
 export function ImportTab() {
   const { files, addFiles } = useApp();
   const { logs, order } = useLogs();
-  const others = files.filter((f) => !/\.bin$/i.test(f.name));
+  const media = useMedia();
+  const others = files.filter((f) => !/\.(bin|mp4|mov|m4v)$/i.test(f.name));
   return (
     <div className="page">
       <h2>Import</h2>
       <p className="muted">
         Add DataFlash logs (.bin), MAVLink telemetry (.tlog), CSV sensor logs and ground videos.
-        Logs are parsed in the background; .tlog and CSV importers arrive in Phase 8.
+        Logs are parsed in the background; videos are read in place (nothing is copied). .tlog and CSV importers arrive in Phase 8.
       </p>
       <button className="primary" onClick={async () => addFiles(await window.huskylog.openFiles())}>Add files…</button>
 
@@ -41,6 +43,34 @@ export function ImportTab() {
                         </span>
                       )}
                       {l.status === 'error' && <span className="err">{l.error}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {media.order.length > 0 && (
+        <>
+          <h3>Videos</h3>
+          <table className="files">
+            <thead><tr><th>Video</th><th>Format</th><th>Duration</th><th>Audio</th><th>Status</th></tr></thead>
+            <tbody>
+              {media.order.map((id) => {
+                const v = media.videos[id]!;
+                const i = v.video;
+                return (
+                  <tr key={id}>
+                    <td title={v.path}>{v.name}</td>
+                    <td>{i ? `${i.codec} · ${i.width}×${i.height}${i.rotation ? ` · rotated ${i.rotation}°` : ''} · ${i.fpsAvg.toFixed(2)} fps${i.vfr ? ' (variable)' : ''}` : ''}</td>
+                    <td>{i ? fmtTime(i.durationS) : ''}</td>
+                    <td>{v.audio ? `${v.audio.codec} ${v.audio.sampleRate / 1000} kHz` : v.status === 'ready' ? 'none' : ''}</td>
+                    <td>
+                      {v.status === 'loading' && <span className="muted">reading…</span>}
+                      {v.status === 'ready' && (i?.supported ? <span className="ok">Ready · sync it on the Sync tab</span> : <span className="err">This computer can't decode {i?.codec}</span>)}
+                      {v.status === 'error' && <span className="err">{v.error}</span>}
                     </td>
                   </tr>
                 );
