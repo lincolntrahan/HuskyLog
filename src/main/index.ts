@@ -5,6 +5,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { IPC, type OpenedFile } from '../shared/ipc';
 import { allowFile, handleHlFile, registerHlFileScheme } from './hlFileProtocol';
+import { cancelDownload, deleteArea, download, estimate, handleTilesProtocol, listAreas } from './mapCache';
 
 const DEV_URL = process.env['ELECTRON_RENDERER_URL']; // set by electron-vite in dev
 const E2E = process.env['HUSKYLOG_E2E'] === '1';
@@ -160,6 +161,13 @@ function registerIpc(): void {
     return { path: r.filePaths[0], content: await readFile(r.filePaths[0], 'utf8') };
   });
 
+  // Offline map cache.
+  ipcMain.handle(IPC.mapAreas, () => listAreas());
+  ipcMain.handle(IPC.mapEstimate, (_e, req) => estimate(req));
+  ipcMain.handle(IPC.mapDownload, (e, req) => download(req, e.sender));
+  ipcMain.handle(IPC.mapCancel, (_e, id: string) => cancelDownload(id));
+  ipcMain.handle(IPC.mapDelete, (_e, id: string) => deleteArea(id));
+
   // Graph presets: one JSON file per preset in %APPDATA%/HuskyLog/presets.
   const presetDir = () => join(app.getPath('userData'), 'presets');
   const safe = (name: string) => name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 100) || 'preset';
@@ -180,6 +188,7 @@ function registerIpc(): void {
 app.whenReady().then(() => {
   handleAppScheme();
   handleHlFile();
+  handleTilesProtocol();
   installOfflineGuard();
   registerIpc();
   createMainWindow();

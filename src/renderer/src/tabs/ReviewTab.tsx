@@ -9,16 +9,18 @@ import { GraphPanel } from '../windows/graph/GraphPanel';
 import { MessagesPanel } from '../windows/MessagesPanel';
 import { ParamsPanel } from '../windows/ParamsPanel';
 import { TimelineBar } from '../windows/TimelineBar';
+import { AdiPanel } from '../windows/AdiPanel';
 
 const components: Record<string, React.FunctionComponent<IDockviewPanelProps>> = {
-  map3d: Map3DPanel,
+  map3d: Map3DPanel as React.FunctionComponent<IDockviewPanelProps>,
   video: VideoPanel,
   graph: GraphPanel as React.FunctionComponent<IDockviewPanelProps>,
   messages: MessagesPanel,
   params: ParamsPanel,
+  adi: AdiPanel as React.FunctionComponent<IDockviewPanelProps>,
 };
 
-const TITLES: Record<string, string> = { map3d: '3D Map', video: 'Video', graph: 'Graph', messages: 'Messages', params: 'Parameters' };
+const TITLES: Record<string, string> = { map3d: '3D Map', video: 'Video', graph: 'Graph', messages: 'Messages', params: 'Parameters', adi: 'Horizon' };
 
 /** Same-origin path to the empty pop-out shell (works for dev server and app://). */
 const POPOUT_URL = '/popout.html';
@@ -60,8 +62,10 @@ export function ReviewTab() {
     e.api.addPanel({ id: 'graph-0', component: 'graph', title: 'Graph', position: { referencePanel: 'map3d-0', direction: 'below' } });
     e.api.addPanel({ id: 'messages-0', component: 'messages', title: 'Messages', position: { referencePanel: 'video-0', direction: 'below' } });
     e.api.addPanel({ id: 'params-0', component: 'params', title: 'Parameters', position: { referencePanel: 'messages-0', direction: 'within' } });
+    e.api.addPanel({ id: 'adi-0', component: 'adi', title: 'Horizon', position: { referencePanel: 'video-0', direction: 'within' } });
+    e.api.getPanel('video-0')?.api.setActive();
     e.api.getPanel('messages-0')?.api.setActive();
-    e.api.getPanel('graph-0')?.api.setSize({ height: 520 });
+    e.api.getPanel('graph-0')?.api.setSize({ height: 430 });
   }, []);
 
   const add = (type: string) => apiRef.current && addWindow(apiRef.current, type);
@@ -75,6 +79,7 @@ export function ReviewTab() {
         <button onClick={() => add('graph')}>Graph</button>
         <button onClick={() => add('messages')}>Messages</button>
         <button onClick={() => add('params')}>Parameters</button>
+        <button onClick={() => add('adi')}>Horizon</button>
       </div>
       <div className="dock">
         <DockviewReact
