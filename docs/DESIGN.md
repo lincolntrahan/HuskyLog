@@ -734,3 +734,33 @@ Verified by `scripts/e2e.mjs` against both the dev build and the packaged
 
 **Known minor issue:** Cesium logs one "width 0" render error during the
 pop-out close transition. Rendering recovers immediately; to be tidied in Phase 3.
+
+## Appendix B. Phase 1 Results (2026-11-15)
+
+**Delivered:** our own MIT DataFlash parser (`src/core/dataflash`, run in a Web
+Worker); channel catalog with FMTU units, instances and RCOU function labels;
+Graph window (uPlot) with fuzzy channel search, per-pixel min/max decimation,
+gap breaks, mode bands and arm/disarm markers, auto left/right axes by unit,
+live values at cursor/playhead, wheel zoom, pan, shared playhead and range
+selection; range stats (mean, std dev, min, max with times, sample count, copy
+as TSV); CSV export (fastest / fixed-rate / union time base); graph presets
+(7 built-in, save/delete/import/export as JSON in `%APPDATA%/HuskyLog/presets`);
+Messages window; Parameters window (value at playhead, non-default filter,
+change list hiding housekeeping params, `.param` export); timeline bar.
+
+**Verified:** 22 unit tests (synthetic edge cases + golden values from the
+reference log) and `scripts/e2e-phase1.mjs` (16 UI checks, graph in a pop-out,
+no network). Performance on the 33 MB reference log: read + index + summary
+in ~0.6 s in the app. On a 493 MB synthetic log (13 M messages): index 1.9 s,
+summary 60 ms, decoding all IMU data 0.6 s, ~0.9 GB RSS.
+
+**Parser fix found by tests:** a valid final message followed by trailing junk
+was dropped by the corruption guard. Now accepted when no valid header follows.
+
+**Not yet done / deferred:**
+- Side-by-side comparison with UAV Log Viewer on more team logs (needs the team;
+  the golden tests cover the reference log only).
+- `time_utc` CSV column: needs the GPS-disciplined clock fit (§5.1), Phase 4.
+- Embedded-files viewer (§7.6a): the parser extracts them; UI is low priority.
+- Keyboard shortcuts (Space) only work while the main window has focus, not in
+  pop-outs.

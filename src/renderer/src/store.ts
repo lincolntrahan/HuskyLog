@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { OpenedFile } from '../../shared/ipc';
+import { isLogFile, openLog } from './data/logs';
 
 export type AppTab = 'import' | 'sync' | 'review';
 
@@ -23,7 +24,10 @@ export const useApp = create<AppState>((set) => ({
   tab: 'review',
   setTab: (tab) => set({ tab }),
   files: [],
-  addFiles: (f) => set((s) => ({ files: [...s.files, ...f.filter((n) => !s.files.some((o) => o.path === n.path))] })),
+  addFiles: (f) => {
+    set((s) => ({ files: [...s.files, ...f.filter((n) => !s.files.some((o) => o.path === n.path))] }));
+    for (const file of f) if (isLogFile(file)) void openLog(file);
+  },
   cameras: {},
   setCamera: (id, c) => set((s) => ({ cameras: { ...s.cameras, [id]: c } })),
 }));

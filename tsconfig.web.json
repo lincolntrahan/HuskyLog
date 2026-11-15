@@ -15,5 +15,6 @@
     "noEmit": true,
     "paths": { "@core/*": ["./src/core/*"] }
   },
-  "include": ["src/renderer/**/*", "src/shared/**/*", "src/core/**/*", "src/preload/api.d.ts"]
+  "include": ["src/renderer/**/*", "src/shared/**/*", "src/core/**/*", "src/preload/api.d.ts"],
+  "exclude": ["**/*.test.ts", "src/core/**/testing/**"]
 }

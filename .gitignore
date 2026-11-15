@@ -6,3 +6,4 @@ release/
 *.log
 test-data/generated/
 .e2e/
+test-data/logs/
