@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, screen, session, shell } from 'electron';
 import { join, normalize, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { IPC, type OpenedFile } from '../shared/ipc';
 import { allowFile, handleHlFile, registerHlFileScheme } from './hlFileProtocol';
 
@@ -11,6 +13,8 @@ const APP_ORIGIN = 'app://huskylog';
 const blocked: string[] = [];
 
 registerHlFileScheme();
+// Test runs use a throwaway profile so they never touch the user's presets/settings.
+if (E2E) app.setPath('userData', join(tmpdir(), 'huskylog-e2e-profile'));
 
 /** Production UI is served from app://huskylog/ so pages have a real, same-origin
  *  origin (needed for pop-out windows and a strict CSP). */
@@ -134,6 +138,43 @@ function registerIpc(): void {
   }));
   ipcMain.handle(IPC.blockedRequests, () => blocked.slice());
   ipcMain.handle(IPC.e2eRegister, (_e, path: string) => (E2E ? allowFile(path) : null));
+
+  // Text save/open (CSV export, preset import/export).
+  let e2eSavePath: string | null = null;
+  ipcMain.handle(IPC.e2eSaveTextTo, (_e, path: string) => { if (E2E) e2eSavePath = path; });
+  ipcMain.handle(IPC.saveText, async (e, defaultName: string, content: string, filters: Electron.FileFilter[]) => {
+    let path = E2E ? e2eSavePath : null;
+    if (!path) {
+      const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+      const r = await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters });
+      if (r.canceled || !r.filePath) return null;
+      path = r.filePath;
+    }
+    await writeFile(path, content, 'utf8');
+    return path;
+  });
+  ipcMain.handle(IPC.openText, async (e, filters: Electron.FileFilter[]) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? undefined;
+    const r = await dialog.showOpenDialog(win!, { properties: ['openFile'], filters });
+    if (r.canceled || !r.filePaths[0]) return null;
+    return { path: r.filePaths[0], content: await readFile(r.filePaths[0], 'utf8') };
+  });
+
+  // Graph presets: one JSON file per preset in %APPDATA%/HuskyLog/presets.
+  const presetDir = () => join(app.getPath('userData'), 'presets');
+  const safe = (name: string) => name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 100) || 'preset';
+  ipcMain.handle(IPC.listPresets, async () => {
+    await mkdir(presetDir(), { recursive: true });
+    const files = (await readdir(presetDir())).filter((f) => f.endsWith('.json'));
+    return Promise.all(files.map(async (f) => ({ name: f.slice(0, -5), json: await readFile(join(presetDir(), f), 'utf8') })));
+  });
+  ipcMain.handle(IPC.savePreset, async (_e, name: string, json: string) => {
+    await mkdir(presetDir(), { recursive: true });
+    await writeFile(join(presetDir(), `${safe(name)}.json`), json, 'utf8');
+  });
+  ipcMain.handle(IPC.deletePreset, async (_e, name: string) => {
+    await rm(join(presetDir(), `${safe(name)}.json`), { force: true });
+  });
 }
 
 app.whenReady().then(() => {

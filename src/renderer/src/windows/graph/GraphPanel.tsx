@@ -1,0 +1,310 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { IDockviewPanelProps } from 'dockview-react';
+import uPlot from 'uplot';
+import 'uplot/dist/uPlot.min.css';
+import { buildAligned } from '@core/series/decimate';
+import { interpAt, medianDt, rangeStats } from '@core/series/series';
+import { channelExists, loadChannel, primaryLog, refKey, useLogs, type ChannelRef, type LoadedChannel } from '../../data/logs';
+import { fmtTime, timeDomain, useTimeline } from '../../data/timeline';
+import { ChannelPicker } from './ChannelPicker';
+import { DEFAULT_GRAPH, modeColor, nextColor, type GraphCfg, type SeriesCfg } from './model';
+import { ExportDialog, PresetMenu, StatsTable } from './GraphParts';
+
+export interface ResolvedSeries { cfg: SeriesCfg; ref: ChannelRef; data: LoadedChannel | null; missing: boolean; axis: 'left' | 'right'; label: string }
+
+const AXIS = '#8a94a3', GRID = '#2a313b', PLAYHEAD = '#ffcc00';
+
+export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphCfg }>) {
+  const [cfg, setCfgState] = useState<GraphCfg>(params?.graph ?? DEFAULT_GRAPH);
+  const setCfg = useCallback((next: GraphCfg) => {
+    setCfgState(next);
+    api.updateParameters({ graph: next });
+  }, [api]);
+
+  const logs = useLogs();
+  const primary = primaryLog();
+  const [loaded, setLoaded] = useState<Record<string, LoadedChannel | null>>({});
+  const [picker, setPicker] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [xRange, setXRange] = useState<[number, number] | null>(null);
+  const [hoverT, setHoverT] = useState<number | null>(null);
+  const range = useTimeline((s) => s.range);
+  const playT = useTimeline((s) => s.t);
+
+  // Resolve series → refs → loaded data.
+  const resolved = useMemo<ResolvedSeries[]>(() => {
+    const units: string[] = [];
+    const base = cfg.series.map((s) => {
+      const ref = { stream: s.stream ?? primary?.id ?? '', id: s.id };
+      const data = loaded[refKey(ref)] ?? null;
+      if (s.visible && data && !units.includes(data.unit)) units.push(data.unit);
+      return { s, ref, data };
+    });
+    const [left, right] = units;
+    const multi = logs.order.length > 1;
+    return base.map(({ s, ref, data }) => {
+      const unit = data?.unit ?? '';
+      const axis = s.axis !== 'auto' ? s.axis : right !== undefined && unit === right && unit !== left ? 'right' : 'left';
+      const streamName = multi ? `${logs.logs[ref.stream]?.name ?? '?'}: ` : '';
+      return {
+        cfg: s, ref, data, axis,
+        missing: !!ref.stream && logs.logs[ref.stream]?.status === 'ready' && !channelExists(ref),
+        label: `${streamName}${s.id}${data?.info?.label ? ` (${data.info.label})` : ''}`,
+      };
+    });
+  }, [cfg, loaded, primary?.id, logs]);
+
+  useEffect(() => {
+    for (const r of resolved) {
+      const k = refKey(r.ref);
+      if (!r.ref.stream || k in loaded || r.missing) continue;
+      if (logs.logs[r.ref.stream]?.status !== 'ready') continue;
+      setLoaded((m) => ({ ...m, [k]: null }));
+      void loadChannel(r.ref).then((d) => setLoaded((m) => ({ ...m, [k]: d })));
+    }
+  }, [resolved, loaded, logs]);
+
+  const visible = resolved.filter((r) => r.cfg.visible && r.data);
+  const domain = useMemo<[number, number]>(() => {
+    let a = Infinity, b = -Infinity;
+    for (const r of visible) { a = Math.min(a, r.data!.t[0]!); b = Math.max(b, r.data!.t[r.data!.t.length - 1]!); }
+    return Number.isFinite(a) ? [a, b] : timeDomain();
+  }, [visible.map((r) => refKey(r.ref)).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const view = xRange ?? domain;
+
+  // ---- uPlot ----
+  const hostRef = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<uPlot | null>(null);
+  const stateRef = useRef({ view, domain, visible, modes: primary?.summary?.modes ?? [], armed: primary?.summary?.armed ?? [], modeBands: cfg.modeBands });
+  stateRef.current = { view, domain, visible, modes: primary?.summary?.modes ?? [], armed: primary?.summary?.armed ?? [], modeBands: cfg.modeBands };
+
+  const structure = visible.map((r) => `${refKey(r.ref)}:${r.cfg.color}:${r.axis}`).join('|');
+  const leftUnits = [...new Set(visible.filter((r) => r.axis === 'left').map((r) => r.data!.unit).filter(Boolean))].join(', ');
+  const rightUnits = [...new Set(visible.filter((r) => r.axis === 'right').map((r) => r.data!.unit).filter(Boolean))].join(', ');
+  const hasRight = visible.some((r) => r.axis === 'right');
+
+  const syncSelect = useCallback(() => {
+    const u = plotRef.current;
+    if (!u) return;
+    const r = useTimeline.getState().range;
+    if (!r) { u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false); return; }
+    const l = Math.max(0, u.valToPos(r[0], 'x')), rr = Math.min(u.over.clientWidth, u.valToPos(r[1], 'x'));
+    u.setSelect({ left: l, top: 0, width: Math.max(0, rr - l), height: u.over.clientHeight }, false);
+  }, []);
+
+  const refresh = useCallback(() => {
+    const u = plotRef.current;
+    if (!u) return;
+    const { view: [x0, x1], visible: vis } = stateRef.current;
+    const data = buildAligned(vis.map((r) => r.data!), x0, x1, u.over.clientWidth || 600);
+    u.setData(data as uPlot.AlignedData);
+    u.setScale('x', { min: x0, max: x1 });
+    syncSelect();
+  }, [syncSelect]);
+
+  useEffect(() => {
+    const host = hostRef.current!;
+    const ctxOf = (u: uPlot) => u.ctx;
+    const drawBands = (u: uPlot) => {
+      const st = stateRef.current;
+      if (!st.modeBands) return;
+      const ctx = ctxOf(u);
+      const { left, top, width, height } = u.bbox;
+      ctx.save();
+      ctx.font = `${11 * devicePixelRatio}px Segoe UI, sans-serif`;
+      for (const m of st.modes) {
+        const a = Math.max(left, u.valToPos(m.t0, 'x', true)), b = Math.min(left + width, u.valToPos(m.t1, 'x', true));
+        if (b <= a) continue;
+        const c = modeColor(m.name);
+        ctx.globalAlpha = 0.09; ctx.fillStyle = c; ctx.fillRect(a, top, b - a, height);
+        ctx.globalAlpha = 0.85; ctx.fillStyle = c;
+        if (b - a > 40 * devicePixelRatio) ctx.fillText(m.name, a + 4 * devicePixelRatio, top + 13 * devicePixelRatio);
+      }
+      ctx.globalAlpha = 0.6; ctx.strokeStyle = '#ff6b6b'; ctx.setLineDash([4 * devicePixelRatio, 4 * devicePixelRatio]);
+      for (const [a, d] of st.armed) for (const t of [a, d]) {
+        const x = u.valToPos(t, 'x', true);
+        if (x < left || x > left + width) continue;
+        ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + height); ctx.stroke();
+      }
+      ctx.restore();
+    };
+    const drawPlayhead = (u: uPlot) => {
+      const x = u.valToPos(useTimeline.getState().t, 'x', true);
+      const { left, top, width, height } = u.bbox;
+      if (x < left || x > left + width) return;
+      const ctx = ctxOf(u);
+      ctx.save(); ctx.strokeStyle = PLAYHEAD; ctx.lineWidth = 1.5 * devicePixelRatio;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, top + height); ctx.stroke(); ctx.restore();
+    };
+    const opts: uPlot.Options = {
+      width: host.clientWidth || 600,
+      height: host.clientHeight || 300,
+      scales: { x: { time: false }, y: { auto: true }, y2: { auto: true } },
+      axes: [
+        { stroke: AXIS, grid: { stroke: GRID }, ticks: { stroke: GRID }, values: (_u, vals) => vals.map((v) => fmtTime(v).replace(/\.?0+$/, '')) },
+        { scale: 'y', stroke: AXIS, grid: { stroke: GRID }, ticks: { stroke: GRID }, label: leftUnits, size: 56 },
+        ...(hasRight ? [{ scale: 'y2', side: 1 as const, stroke: AXIS, grid: { show: false }, ticks: { stroke: GRID }, label: rightUnits, size: 56 }] : []),
+      ],
+      series: [
+        {},
+        ...visible.map((r) => ({ label: r.label, stroke: r.cfg.color, width: 1.25, scale: r.axis === 'right' ? 'y2' : 'y', spanGaps: false, points: { show: false } })),
+      ],
+      legend: { show: false },
+      cursor: {
+        drag: { x: true, y: false, setScale: false },
+        points: { show: false },
+        bind: { dblclick: () => () => { setXRange(null); return null; } },
+      },
+      hooks: {
+        drawClear: [drawBands],
+        draw: [drawPlayhead],
+        setSelect: [(u) => {
+          const { left, width } = u.select;
+          if (width >= 3) useTimeline.getState().setRange([u.posToVal(left, 'x'), u.posToVal(left + width, 'x')]);
+        }],
+        setCursor: [(u) => {
+          const l = u.cursor.left;
+          setHoverT(l !== undefined && l >= 0 ? u.posToVal(l, 'x') : null);
+        }],
+      },
+    };
+    const u = new uPlot(opts, [[]], host);
+    plotRef.current = u;
+
+    // Wheel zoom around the cursor; middle-drag or Alt-drag to pan.
+    const over = u.over;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const [x0, x1] = stateRef.current.view;
+      const [d0, d1] = stateRef.current.domain;
+      const xv = u.posToVal(e.offsetX, 'x');
+      const f = e.deltaY < 0 ? 0.8 : 1.25;
+      let a = xv - (xv - x0) * f, b = xv + (x1 - xv) * f;
+      if (b - a >= d1 - d0) { setXRange(null); return; }
+      if (a < d0) { b += d0 - a; a = d0; }
+      if (b > d1) { a -= b - d1; b = d1; }
+      setXRange([a, b]);
+    };
+    let pan: { x: number; v: [number, number] } | null = null;
+    let down: { x: number; y: number } | null = null;
+    const onDown = (e: MouseEvent) => {
+      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+        pan = { x: e.clientX, v: stateRef.current.view };
+        e.stopPropagation(); e.preventDefault();
+      } else if (e.button === 0) {
+        down = { x: e.clientX, y: e.clientY };
+      }
+    };
+    // A click (press + release without moving) moves the playhead and clears the selection.
+    const onClickUp = (e: MouseEvent) => {
+      if (down && Math.abs(e.clientX - down.x) < 3 && Math.abs(e.clientY - down.y) < 3) {
+        useTimeline.getState().setT(u.posToVal(e.offsetX, 'x'));
+        useTimeline.getState().setRange(null);
+      }
+      down = null;
+    };
+    over.addEventListener('mouseup', onClickUp);
+    const onMove = (e: MouseEvent) => {
+      if (!pan) return;
+      const dx = ((e.clientX - pan.x) / over.clientWidth) * (pan.v[1] - pan.v[0]);
+      const [d0, d1] = stateRef.current.domain;
+      let a = pan.v[0] - dx, b = pan.v[1] - dx;
+      if (a < d0) { b += d0 - a; a = d0; }
+      if (b > d1) { a -= b - d1; b = d1; }
+      setXRange([a, b]);
+    };
+    const onUp = () => { pan = null; };
+    over.addEventListener('wheel', onWheel, { passive: false });
+    over.addEventListener('mousedown', onDown, true);
+    const win = host.ownerDocument.defaultView ?? window;
+    win.addEventListener('mousemove', onMove);
+    win.addEventListener('mouseup', onUp);
+
+    const ro = new ResizeObserver(() => {
+      if (!host.clientWidth || !host.clientHeight) return;
+      u.setSize({ width: host.clientWidth, height: host.clientHeight });
+      refresh();
+    });
+    ro.observe(host);
+    refresh();
+
+    const unsub = useTimeline.subscribe((s, prev) => {
+      if (s.t !== prev.t) u.redraw(false);
+      if (s.range !== prev.range) syncSelect();
+    });
+    return () => {
+      unsub(); ro.disconnect();
+      win.removeEventListener('mousemove', onMove);
+      win.removeEventListener('mouseup', onUp);
+      u.destroy();
+      plotRef.current = null;
+    };
+  }, [structure, leftUnits, rightUnits, hasRight]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { refresh(); }, [view[0], view[1], refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { plotRef.current?.redraw(false); }, [cfg.modeBands]);
+
+  // Keyboard: Esc clears selection, Z zooms to it.
+  const onKey = (e: React.KeyboardEvent) => {
+    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    if (e.key === 'Escape') useTimeline.getState().setRange(null);
+    if ((e.key === 'z' || e.key === 'Z') && range) setXRange(range);
+  };
+
+  // ---- series editing ----
+  const existing = new Set(resolved.map((r) => refKey(r.ref)));
+  const addRef = (r: ChannelRef) => {
+    if (existing.has(refKey(r))) return;
+    const s: SeriesCfg = { id: r.id, color: nextColor(cfg.series.map((x) => x.color)), axis: 'auto', visible: true };
+    if (r.stream !== primary?.id) s.stream = r.stream;
+    setCfg({ ...cfg, series: [...cfg.series, s] });
+  };
+  const update = (i: number, p: Partial<SeriesCfg>) => setCfg({ ...cfg, series: cfg.series.map((s, k) => (k === i ? { ...s, ...p } : s)) });
+  const remove = (i: number) => setCfg({ ...cfg, series: cfg.series.filter((_, k) => k !== i) });
+
+  const readT = hoverT ?? playT;
+  const fmtVal = (v: number) => (Number.isNaN(v) ? '–' : Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(2) : v.toPrecision(4));
+  (window.__hl as Record<string, unknown>)[`graph:${api.id}`] = { setCfg, getCfg: () => cfg, setXRange, refresh: () => refresh() };
+
+  return (
+    <div className="hl-panel graph" tabIndex={0} onKeyDown={onKey}>
+      <div className="graph-bar">
+        <button onClick={() => setPicker((p) => !p)} title="Add a channel (search)">＋ Add</button>
+        <PresetMenu cfg={cfg} onApply={setCfg} />
+        <button onClick={() => setXRange(null)} disabled={!xRange} title="Show the whole log (double-click the plot)">Fit</button>
+        <button onClick={() => range && setXRange(range)} disabled={!range} title="Zoom to the selected range (Z)">Zoom to selection</button>
+        <button onClick={() => setExporting(true)} disabled={!range || !visible.length} title="Export the selected range as CSV">Export CSV…</button>
+        <label className="chk"><input type="checkbox" checked={cfg.modeBands} onChange={(e) => setCfg({ ...cfg, modeBands: e.target.checked })} /> Modes</label>
+        <span className="graph-hint muted">drag: select · click: playhead · wheel: zoom · Alt/middle-drag: pan</span>
+      </div>
+      <div className="legend">
+        {resolved.map((r, i) => (
+          <div key={refKey(r.ref)} className={`chip${r.cfg.visible ? '' : ' off'}${r.missing ? ' missing' : ''}`} title={r.missing ? 'This channel is not in the current log' : r.label}>
+            <input type="color" value={r.cfg.color} onChange={(e) => update(i, { color: e.target.value })} aria-label={`Colour of ${r.cfg.id}`} />
+            <span className="chip-name" onClick={() => update(i, { visible: !r.cfg.visible })}>{r.label}</span>
+            <span className="chip-val">{r.data ? `${fmtVal(interpAt(r.data, readT, 5 * medianDt(r.data.t) || Infinity))} ${r.data.unit}` : r.missing ? 'missing' : '…'}</span>
+            <button className="chip-axis" title="Axis: auto / left / right" onClick={() => update(i, { axis: r.cfg.axis === 'auto' ? 'left' : r.cfg.axis === 'left' ? 'right' : 'auto' })}>
+              {r.cfg.axis === 'auto' ? (r.axis === 'right' ? 'R' : 'L') + '·' : r.cfg.axis === 'left' ? 'L' : 'R'}
+            </button>
+            <button className="chip-x" title="Remove" onClick={() => remove(i)}>×</button>
+          </div>
+        ))}
+        {resolved.length === 0 && <span className="muted">No series. Click ＋ Add or pick a preset.</span>}
+      </div>
+      <div className="plot-host" ref={hostRef} />
+      {range && visible.length > 0 && <StatsTable series={visible} range={range} />}
+      <div className="graph-status muted">
+        {hoverT !== null ? `cursor ${fmtTime(hoverT)}` : `playhead ${fmtTime(playT)}`}
+        {range ? ` · selection ${fmtTime(range[0])} → ${fmtTime(range[1])} (${(range[1] - range[0]).toFixed(3)} s)` : ''}
+      </div>
+      {picker && (
+        <div className="overlay-pop">
+          <ChannelPicker existing={existing} onClose={() => setPicker(false)} onPick={(r, keep) => { addRef(r); if (!keep) setPicker(false); }} />
+        </div>
+      )}
+      {exporting && range && <ExportDialog series={visible} range={range} logName={primary?.name ?? 'log'} onClose={() => setExporting(false)} />}
+    </div>
+  );
+}
+
+export { rangeStats };
