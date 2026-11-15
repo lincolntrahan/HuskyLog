@@ -49,7 +49,7 @@ export interface MapProgress {
   finished: boolean; cancelled: boolean; error?: string;
 }
 
-export interface HuskyLogApi {
+export interface HuskyLogApi extends WorkspaceApi {
   /** Native "open files" dialog. Each chosen file is allow-listed for hl-file://. */
   openFiles(): Promise<OpenedFile[]>;
   /** App version and runtime info, for the about box and diagnostics. */
@@ -92,4 +92,74 @@ export const IPC = {
   mapDelete: 'hl:map-delete',
   e2eRegister: 'hl:e2e-register',
   e2eSaveTextTo: 'hl:e2e-save-text-to',
+} as const;
+
+// ---- Workspace & Pack & Go (DESIGN §11) ----
+
+/** A workspace opened from disk, resolved by main (files allow-listed). */
+export interface OpenedSession {
+  kind: 'hlws' | 'hlpack';
+  path: string;
+  /** Workspace JSON text (renderer parses it with core/workspace). */
+  workspace: string;
+  /** Resolved file per stream id; null when it could not be found. */
+  files: Record<string, OpenedFile | null>;
+  /** Map areas a pack added to this computer's map cache. */
+  importedMapAreas: string[];
+}
+
+/** Stream as the renderer describes it when saving (main fills relative paths and hashes). */
+/** `ref`: a stream whose file is missing on this computer keeps its saved reference. */
+export interface SaveStream { id: string; kind: 'log' | 'video'; name: string; path: string; size: number; ref?: import('../core/workspace/workspace').FileRef }
+
+export interface PackRun { from: 'src' | 'enc'; offset: number; size: number }
+export type PackEntrySpec =
+  | { kind: 'file'; name: string; path: string; method: 'store' | 'deflate' }
+  | { kind: 'mp4'; name: string; src: string; enc?: string; head: Uint8Array; moov: Uint8Array; runs: PackRun[] };
+export interface PackSpec {
+  out: string;
+  /** Workspace JSON with stream refs already pointing at pack entries. */
+  workspace: string;
+  entries: PackEntrySpec[];
+  mapAreas: string[];
+  options: { video: 'full' | 'trim' | 'reencode' };
+}
+export interface PackProgress { done: number; total: number; entry: string; finished: boolean; error?: string; cancelled?: boolean; bytes?: number }
+
+export interface WorkspaceApi {
+  /** Native open dialog for .hlws / .hlpack. */
+  pickWorkspace(): Promise<string | null>;
+  /** Validates the file, then reloads the window into it. Resolves only on error. */
+  openWorkspace(path: string): Promise<{ error: string }>;
+  /** Reloads into an empty session. */
+  newWorkspace(): Promise<void>;
+  /** The session to restore at startup (once), or null. */
+  bootSession(): Promise<OpenedSession | null>;
+  /** Saves; path null → Save As dialog. Saving to the open .hlpack updates it in place. */
+  saveWorkspace(ws: string, streams: SaveStream[], path: string | null, current: { kind: 'hlws' | 'hlpack' | 'none'; path: string | null }): Promise<{ path: string; kind: 'hlws' | 'hlpack'; workspace: string } | null>;
+  /** "Locate file" for a missing stream: checks size and quick hash. */
+  locateFile(name: string, size: number, quickHash?: string): Promise<{ file: OpenedFile; matches: boolean } | null>;
+  /** Save dialog for a new .hlpack. */
+  pickPackPath(defaultName: string): Promise<string | null>;
+  /** Temp file for re-encoded video (returns an id). */
+  packTempCreate(): Promise<string>;
+  packTempWrite(id: string, data: Uint8Array): Promise<number>;
+  /** Writes the pack. Progress arrives through onPackProgress. */
+  packWrite(spec: PackSpec): Promise<{ path: string; bytes: number }>;
+  packCancel(): Promise<void>;
+  onPackProgress(cb: (p: PackProgress) => void): () => void;
+  /** Tells main whether there are unsaved changes (close guard) and the session name. */
+  setDirty(dirty: boolean): Promise<void>;
+  /** Main asks the renderer to save before closing; resolve true when saved. */
+  onSaveBeforeClose(cb: () => Promise<boolean>): () => void;
+  /** An .hlws/.hlpack was opened from Explorer while running. */
+  onOpenRequest(cb: (path: string) => void): () => void;
+  /** Test hooks (HUSKYLOG_E2E=1): next dialog answers. */
+  e2eSetDialogPaths(paths: { open?: string; save?: string; pack?: string; locate?: string; closeChoice?: number }): Promise<void>;
+}
+
+export const WS_IPC = {
+  pick: 'ws:pick', open: 'ws:open', new: 'ws:new', boot: 'ws:boot', save: 'ws:save', locate: 'ws:locate',
+  pickPack: 'pack:pick', tempCreate: 'pack:temp-create', tempWrite: 'pack:temp-write', write: 'pack:write', cancel: 'pack:cancel',
+  setDirty: 'ws:set-dirty', saved: 'ws:saved-before-close', e2e: 'ws:e2e-dialogs',
 } as const;

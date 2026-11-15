@@ -24,10 +24,12 @@ let n = 0;
 
 export const isVideoFile = (f: OpenedFile) => /\.(mp4|mov|m4v)$/i.test(f.name);
 
-export async function openVideo(file: OpenedFile): Promise<void> {
+/** Opens a video. A workspace passes the saved id and name so markers and windows still match. */
+export async function openVideo(file: OpenedFile, opts: { id?: string; name?: string } = {}): Promise<void> {
   if (Object.values(useMedia.getState().videos).some((v) => v.path === file.path)) return;
-  const id = `vid${++n}`;
-  const name = file.name.replace(/\.[^.]+$/, '');
+  let id = opts.id ?? '';
+  while (!id || useMedia.getState().videos[id]) id = `vid${++n}`;
+  const name = opts.name ?? file.name.replace(/\.[^.]+$/, '');
   useMedia.setState((s) => ({
     videos: { ...s.videos, [id]: { id, name, path: file.path, url: file.url, size: file.size, status: 'loading' } },
     order: [...s.order, id],

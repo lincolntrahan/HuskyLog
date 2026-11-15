@@ -20,6 +20,22 @@ const MIME: Record<string, string> = {
 
 const norm = (p: string) => resolve(p).toLowerCase();
 
+/** Entries inside an open .hlpack, served straight from the zip (stored, not compressed). */
+interface Virtual { file: string; offset: number; size: number; name: string }
+const virtuals = new Map<string, Virtual>();
+
+/** Allow-lists a byte range of a file (a pack entry) under a virtual path `<pack>!/<entry>`. */
+export function allowVirtual(path: string, file: string, offset: number, size: number): OpenedFile {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  virtuals.set(path.toLowerCase(), { file, offset, size, name });
+  return { path, name, size, url: `hl-file://local/${encodeURIComponent(path)}` };
+}
+
+/** Byte range behind a virtual path (for copying a pack entry into a new pack). */
+export function virtualSource(path: string): Virtual | undefined {
+  return virtuals.get(path.toLowerCase());
+}
+
 export function allowFile(path: string): OpenedFile {
   const abs = resolve(path);
   allowed.add(norm(abs));
@@ -39,14 +55,16 @@ export function handleHlFile(): void {
   protocol.handle('hl-file', async (req) => {
     const url = new URL(req.url);
     const abs = decodeURIComponent(url.pathname.replace(/^\//, ''));
-    if (!allowed.has(norm(abs))) return new Response('Forbidden', { status: 403 });
+    const v = virtuals.get(abs.toLowerCase());
+    if (!v && !allowed.has(norm(abs))) return new Response('Forbidden', { status: 403 });
     let size: number;
+    const file = v ? v.file : abs, base = v ? v.offset : 0;
     try {
-      size = statSync(abs).size;
+      size = v ? v.size : statSync(abs).size;
     } catch {
       return new Response('Not found', { status: 404 });
     }
-    const type = MIME[extname(abs).toLowerCase()] ?? 'application/octet-stream';
+    const type = MIME[extname(v ? v.name : abs).toLowerCase()] ?? 'application/octet-stream';
     const range = req.headers.get('range');
     const m = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
     if (m && (m[1] || m[2])) {
@@ -61,7 +79,7 @@ export function handleHlFile(): void {
       if (start > end || start >= size) {
         return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}` } });
       }
-      const body = Readable.toWeb(createReadStream(abs, { start, end })) as ReadableStream;
+      const body = Readable.toWeb(createReadStream(file, { start: base + start, end: base + end })) as ReadableStream;
       return new Response(body, {
         status: 206,
         headers: {
@@ -70,7 +88,7 @@ export function handleHlFile(): void {
         },
       });
     }
-    const body = Readable.toWeb(createReadStream(abs)) as ReadableStream;
+    const body = size === 0 ? null : (Readable.toWeb(createReadStream(file, { start: base, end: base + size - 1 })) as ReadableStream);
     return new Response(body, {
       status: 200,
       headers: { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': String(size) },

@@ -592,20 +592,24 @@ presets/*.json
 - **One click to pack:** File → Pack & Go → choose a video mode:
   - **Full** (default): originals stored **uncompressed** (zip "store").
     Re-compressing video gains nothing and storing keeps it fast.
-  - **Trim to synced range:** ffmpeg stream copy (`-c copy`, no quality loss),
-    cutting at the keyframes around the overlap with the reference plus a 5 s
-    margin. The trim offset is written into the stream's mapping, so sync stays
-    exact.
-  - **Re-encode smaller:** H.264, 720p, quality-based (CRF-like). Also trimmed.
+  - **Trim:** stream copy (no quality loss) by our own MP4 writer
+    (`core/pack/mp4mux`), cutting at the keyframes around the selected time
+    range, or, with no selection, the overlap with the reference log, plus a
+    5 s margin. The video's sync markers move by the cut, so sync stays exact.
+  - **Re-encode smaller:** WebCodecs H.264 at up to 720p (≈ 0.1 bit/pixel/
+    frame), trimmed like above; audio is copied. No ffmpeg.
   - Logs and JSON use deflate.
   - A size estimate is shown before packing.
+  - Map areas overlapping the flights are included (optional); on open they
+    are added to that computer's map cache.
 - **One click to open:** double-click the `.hlpack` (file association) or use
   File → Open. Because media entries are stored uncompressed, `hl-file://` serves
   them **straight from inside the zip** with byte-range requests. That means **no
   extraction**: a 6 GB pack opens instantly. Compressed entries, which are small,
   are extracted to a temp cache.
-- Saving changes to an opened pack writes the workspace back into the pack, or
-  "Save As workspace" extracts to a folder.
+- Saving changes to an opened pack writes the workspace back into the pack
+  (appended with a new central directory, so media offsets never move). "Save
+  As" writes a `.hlws` that refers to the media inside the pack.
 
 ---
 
@@ -983,3 +987,87 @@ Phases 0–4 harnesses still pass.
   already in the layout JSON).
 - Overlay drawing in export (Phase 7 uses `drawOverlays` and `cropRect`).
 - Overlays on the table windows.
+
+## Appendix G. Phase 6 Results (2026-11-15)
+
+**Delivered:**
+- **Workspace (`.hlws`)**, from File → Save / Save As (Ctrl+S, Ctrl+Shift+S).
+  It holds streams, sync (events, markers, options, reference), the dockview
+  layout (every window's config, overlays, video zoom, pop-out windows with
+  their positions), named expressions, map cameras, playhead, selection,
+  speed and tab. Format versioned in `core/workspace` with a migration hook.
+- **File references:** absolute path, path relative to the workspace, and a
+  quick hash (size + first/last 64 KB). On open, HuskyLog tries the relative
+  path, the absolute path, then the workspace folder. Files still missing are
+  listed on the Import tab with **Locate…**, which checks size and hash and
+  warns if a different file is chosen. Missing streams keep their saved
+  reference when you save again.
+- **Opening a session** (File → Open, Ctrl+O, double-click, or a file on the
+  command line): main validates the file, closes pop-outs and reloads the
+  window into a clean state, then hands over the resolved session at boot. A
+  broken file shows an error and leaves the current session alone.
+- **Pack & Go (`.hlpack`)**, in all three video modes, with a per-file size
+  estimate, progress and cancel:
+  - our own ZIP writer/reader (ZIP64, UTF-8 names, streamed, CRC and SHA-256
+    in one pass), readable by Windows' `tar` and Expand-Archive;
+  - `workspace.hlws`, `manifest.json` (sha256 per entry), `streams/<id>/…`
+    and `maps/…`;
+  - **trim** and **re-encode** write a new MP4 (moov at the end, edit lists
+    keep exact presentation times) and shift that video's markers by the cut.
+- **Open in place:** stored entries are served from inside the zip by byte
+  range (`hl-file://local/<pack>!/<entry>`), compressed logs are extracted
+  once to a per-pack cache, and map areas are imported into the map cache.
+- **Saving into an open pack** rewrites only `workspace.hlws` and
+  `manifest.json`: they are appended and a new central directory is written,
+  so media offsets stay valid while the pack is being served.
+- **Unsaved changes:** a ● in the title and File menu. HuskyLog asks before
+  New, Open, opening from Explorer, and closing the window (Save / Don't save
+  / Cancel). One running instance: double-clicking a pack while HuskyLog is
+  open hands it to that window.
+
+**Verified:** 11 new unit tests (78 total): zip round-trip, ZIP64, in-place
+replace, Windows interop, workspace parse/migrate/paths, and MP4 trim of a
+B-frame clip with identical bytes and frame times, audio within 2 µs.
+`scripts/e2e-phase6.mjs` (37 checks, three app launches, secondary monitor):
+- save, dirty tracking and title;
+- packs in all three modes: full 20.2 MB, trim 18.4 MB (video 2.60 → 0.79 MB
+  for a 40 s selection), re-encode 21.9 MB;
+- the broken-pack error;
+- reopening the trimmed and re-encoded packs restores the same stream ids,
+  sync, windows, graph series, overlays, zoom, expressions, playhead and
+  pop-out, and the video still shows the flash on the right frame at the
+  "Wave" event;
+- Ctrl+S into a pack;
+- the close guard and the New prompt;
+- **laptop B:** fresh profile, original files deleted, pack opened from the
+  command line, identical session, map tiles drawn from the pack, zero
+  network requests;
+- a workspace whose files moved lists them as missing, and Locate… restores
+  the synced session.
+
+Phases 0–5 harnesses still pass.
+
+**Design changes:**
+- **No ffmpeg.** Trim is a stream copy by our MP4 writer. Re-encode uses
+  WebCodecs `VideoEncoder` (platform H.264) with the same writer, the path
+  Phase 7 export will reuse.
+- **Trim uses the selection** when a time range is selected, so you can pack
+  just the interesting part of a flight; otherwise the reference-log overlap.
+- **Named expressions belong to the session.** Opening a workspace sets
+  exactly its expressions. A personal library on each computer still
+  remembers every expression you define and seeds new sessions.
+- Presets are not embedded separately: each graph's series are already in the
+  layout.
+- A workspace saved from an open pack refers to media inside that pack
+  (`FileRef.pack`) instead of extracting it.
+- Pop-outs restored from a layout open at the layout's position when that
+  computer has no remembered position and the spot is on a connected monitor.
+
+**Deferred:**
+- Re-encode runs at about real time here (35 s of 720p in 30 s, using the
+  `realtime` encoder mode to avoid B-frames). The `quality` mode with B-frame
+  timing is worth evaluating with Phase 7 export.
+- Verifying pack checksums on open (the manifest has them; reading GBs on
+  every open is not worth it). A "Verify pack" command could use them.
+- Subsetting map areas to the flight bbox (whole areas are copied today).
+- Recent files list.

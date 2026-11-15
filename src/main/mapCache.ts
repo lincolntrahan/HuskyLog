@@ -15,7 +15,8 @@ import type { MapArea, MapDownloadRequest, MapProgress } from '../shared/ipc';
  * so they are the only network access the app ever makes, and only on request.
  */
 
-const dir = () => join(app.getPath('userData'), 'maps');
+export const mapsDir = () => join(app.getPath('userData'), 'maps');
+const dir = mapsDir;
 const dbs = new Map<string, DatabaseSync>(); // `${areaId}.${layer}` → db
 
 function openDb(areaId: string, layer: string): DatabaseSync {
@@ -52,6 +53,8 @@ export function listAreas(): MapArea[] {
 
 let servingCache: MapArea[] | null = null; // area list for tile lookups (no disk reads per tile)
 const servingAreas = () => (servingCache ??= listAreas());
+/** Call after adding area files from outside (e.g. a pack). */
+export const invalidateAreas = () => { servingCache = null; };
 
 function saveArea(a: MapArea) {
   servingCache = null;

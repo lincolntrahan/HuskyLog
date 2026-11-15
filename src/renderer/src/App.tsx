@@ -3,6 +3,7 @@ import { useApp, type AppTab } from './store';
 import { ImportTab } from './tabs/ImportTab';
 import { SyncTab } from './tabs/SyncTab';
 import { ReviewTab } from './tabs/ReviewTab';
+import { FileMenu } from './workspace/FileMenu';
 
 const TABS: { id: AppTab; label: string }[] = [
   { id: 'import', label: 'Import' },
@@ -25,6 +26,7 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">HuskyLog</div>
+        <FileMenu />
         <nav className="tabs" role="tablist">
           {TABS.map((t) => (
             <button key={t.id} role="tab" aria-selected={tab === t.id} className={tab === t.id ? 'tab active' : 'tab'} onClick={() => setTab(t.id)}>

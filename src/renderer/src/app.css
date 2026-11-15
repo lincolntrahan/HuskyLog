@@ -247,3 +247,27 @@ progress { width: 140px; }
 .video-stage { overflow: hidden; }
 .video-stage.zoomed { cursor: grab; }
 .plot-wrap { flex: 1; min-height: 120px; position: relative; display: flex; flex-direction: column; }
+
+/* File menu, dialogs (DESIGN 11) */
+.file-menu { position: relative; display: flex; align-items: center; gap: 10px; }
+.menu-btn { background: transparent; border-color: transparent; }
+.menu-btn.on, .menu-btn:hover { background: var(--bg-3); }
+.menu { position: absolute; top: 100%; left: 0; z-index: 50; min-width: 230px; display: grid; padding: 4px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+.menu-item { display: flex; justify-content: space-between; gap: 18px; background: transparent; border: none; text-align: left; padding: 6px 10px; }
+.menu-item:hover { background: var(--bg-3); }
+.menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.session-name { color: var(--fg-dim); font-size: 13px; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.dirty { color: var(--accent); }
+.modal-back { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; min-width: 360px; max-width: min(760px, 92vw); display: grid; gap: 10px; }
+.modal h3 { margin: 0; }
+.modal p { margin: 0; }
+.modal-row { display: flex; gap: 8px; justify-content: flex-end; }
+.modal fieldset { border: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.modal .radio { display: block; }
+.pack-est { min-height: 40px; }
+.pack-progress { display: flex; align-items: center; gap: 8px; }
+.pack-progress progress { flex: 1; }
+.toast { position: fixed; right: 16px; bottom: 36px; z-index: 120; max-width: 520px; padding: 8px 10px; background: var(--bg-2); border: 1px solid #a33; border-radius: 6px; }
+.missing { margin: 10px 0; padding: 10px 12px; border: 1px solid #b8860b; border-radius: 6px; background: rgba(184,134,11,.08); display: grid; gap: 6px; }
+.missing-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
