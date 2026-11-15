@@ -1,0 +1,31 @@
+appId: org.huskylog.app
+productName: HuskyLog
+copyright: Copyright © 2026 HuskyLog contributors (MIT)
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - "!**/*.map"
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # No code-signing certificate yet; Windows SmartScreen will warn on first run.
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false          # per-user install, no admin rights needed
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: HuskyLog
+  artifactName: HuskyLog-Setup-${version}.exe
+fileAssociations:
+  - ext: hlpack
+    name: HuskyLog Pack
+    description: HuskyLog Pack & Go bundle
+  - ext: hlws
+    name: HuskyLog Workspace
+    description: HuskyLog workspace
