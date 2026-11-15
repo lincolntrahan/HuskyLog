@@ -20,6 +20,7 @@ npm run dist         # Windows installer in release/
 npm run gen:testdata # synthetic H.264 / HEVC / VFR clips (needs ffmpeg-static)
 npm run build && npm run e2e          # Phase 0 spikes (pop-outs, Cesium, video)
 npm run e2e:phase1                     # logs, graphs, stats, CSV, presets (needs the reference log)
+npm run e2e:phase2                     # expressions (needs the reference log)
 ```
 
 `e2e` drives the built app with Playwright and writes screenshots to `.e2e/`.

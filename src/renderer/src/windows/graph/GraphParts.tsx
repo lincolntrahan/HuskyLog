@@ -3,6 +3,19 @@ import { rangeStats, toCsv, type TimeBase } from '@core/series/series';
 import { fmtTime } from '../../data/timeline';
 import { BUILTIN_PRESETS, cfgFromPreset, parsePreset, presetFromCfg, type GraphCfg, type GraphPreset } from './model';
 import type { ResolvedSeries } from './GraphPanel';
+import { requirements } from '@core/expr/evaluate';
+import { useExpressions } from '../../data/expressions';
+
+/** Named expressions used (directly or indirectly) by a graph's expression series. */
+function namedUsedBy(cfg: GraphCfg): Record<string, string> {
+  const all = useExpressions.getState().named;
+  const out: Record<string, string> = {};
+  for (const s of cfg.series) {
+    if (s.kind !== 'expr') continue;
+    try { for (const n of requirements(s.id, all).names) out[n] = all[n]!; } catch { /* broken expression: skip */ }
+  }
+  return out;
+}
 
 const num = (v: number) => (Number.isNaN(v) ? '–' : Math.abs(v) >= 1000 ? v.toFixed(1) : Math.abs(v) >= 1 ? v.toFixed(3) : v.toPrecision(4));
 const colName = (r: ResolvedSeries) => `${r.label}${r.data?.unit ? ` [${r.data.unit}]` : ''}`;
@@ -80,10 +93,14 @@ export function PresetMenu({ cfg, onApply }: { cfg: GraphCfg; onApply: (c: Graph
   });
   useEffect(() => { if (open) void reload(); }, [open]);
 
-  const apply = (p: GraphPreset) => { onApply(cfgFromPreset(p)); setOpen(false); };
+  const apply = (p: GraphPreset) => {
+    if (p.named) useExpressions.getState().mergeNamed(p.named);
+    onApply(cfgFromPreset(p));
+    setOpen(false);
+  };
   const save = async () => {
     if (!name.trim()) return;
-    await window.huskylog.savePreset(name.trim(), JSON.stringify(presetFromCfg(name.trim(), cfg), null, 2));
+    await window.huskylog.savePreset(name.trim(), JSON.stringify(presetFromCfg(name.trim(), cfg, namedUsedBy(cfg)), null, 2));
     setName('');
     await reload();
   };

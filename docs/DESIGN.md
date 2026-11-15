@@ -764,3 +764,35 @@ was dropped by the corruption guard. Now accepted when no valid header follows.
 - Embedded-files viewer (§7.6a): the parser extracts them; UI is low priority.
 - Keyboard shortcuts (Space) only work while the main window has focus, not in
   pop-outs.
+
+## Appendix C. Phase 2 Results (2026-11-15)
+
+**Delivered:** expression engine (`src/core/expr`): Pratt parser with source
+positions; vectorised evaluator where every sub-expression keeps its own time
+base and the lower-rate operand is resampled onto the higher-rate one (linear,
+or sample-and-hold via `hold()`; NaN outside range and across gaps); `t` as a
+deferred function of time; 30 functions (math, `atan2/hypot/min/max/clamp`,
+`deriv`, `integrate`, `lowpass`, `highpass`, `movavg`, `median`, `delay`,
+`hold`, `dt`, angle helpers) and constants `pi`, `e`, `g`. Static validation
+(unknown functions/names/channels with "did you mean", arity, cycles in named
+expressions). Graph integration: expression series with label and unit, editor
+with live error underline, autocomplete, signature help and a function list;
+named expressions usable in the channel picker and inside other expressions;
+presets embed the named expressions they use; built-in "Power & energy" preset.
+
+**Verified:** 24 new unit tests (46 total), including physical checks on the
+reference log: `integrate(BAT.Curr)/3600` matches the FC's consumed-Ah counter
+within 2%, `integrate(BAT.Volt*BAT.Curr)/3600` matches its energy counter within
+3%, IMU acceleration magnitude is 1.00 g at rest, `deriv(BARO.Alt)` correlates
+0.94 with the FC's climb rate. `scripts/e2e-phase2.mjs`: 19 UI checks.
+
+**UI bug found by the harness:** accepting a completion moved the caret one
+frame later, so fast typing landed in the wrong place. Now set synchronously.
+
+**Deferred / differences from §8:**
+- Cross-log references (`log2:ATT.Roll`) wait for Phase 4 sync.
+- Named expressions persist per machine (browser storage) until the workspace
+  file exists (Phase 6); presets already carry them between machines.
+- `rate` from the §8 list was dropped as ambiguous; `deriv()` and `dt()` cover it.
+- Evaluation runs on the UI thread (fast enough: ~1 M samples in tens of ms);
+  move to the worker if long chains of filters get slow.
