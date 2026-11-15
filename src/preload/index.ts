@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type HuskyLogApi, type MapProgress } from '../shared/ipc';
+import { IPC, WS_IPC, type HuskyLogApi, type MapProgress, type PackProgress } from '../shared/ipc';
 
 const api: HuskyLogApi = {
   openFiles: () => ipcRenderer.invoke(IPC.openFiles),
@@ -22,6 +22,38 @@ const api: HuskyLogApi = {
   },
   e2eRegister: (path) => ipcRenderer.invoke(IPC.e2eRegister, path),
   e2eSaveTextTo: (path) => ipcRenderer.invoke(IPC.e2eSaveTextTo, path),
+  // Workspace & Pack & Go
+  pickWorkspace: () => ipcRenderer.invoke(WS_IPC.pick),
+  openWorkspace: (path) => ipcRenderer.invoke(WS_IPC.open, path),
+  newWorkspace: () => ipcRenderer.invoke(WS_IPC.new),
+  bootSession: () => ipcRenderer.invoke(WS_IPC.boot),
+  saveWorkspace: (ws, streams, path, current) => ipcRenderer.invoke(WS_IPC.save, ws, streams, path, current),
+  locateFile: (name, size, hash) => ipcRenderer.invoke(WS_IPC.locate, name, size, hash),
+  pickPackPath: (name) => ipcRenderer.invoke(WS_IPC.pickPack, name),
+  packTempCreate: () => ipcRenderer.invoke(WS_IPC.tempCreate),
+  packTempWrite: (id, data) => ipcRenderer.invoke(WS_IPC.tempWrite, id, data),
+  packWrite: (spec) => ipcRenderer.invoke(WS_IPC.write, spec),
+  packCancel: () => ipcRenderer.invoke(WS_IPC.cancel),
+  onPackProgress: (cb) => {
+    const h = (_e: Electron.IpcRendererEvent, p: PackProgress) => cb(p);
+    ipcRenderer.on('hl:pack-progress', h);
+    return () => ipcRenderer.removeListener('hl:pack-progress', h);
+  },
+  setDirty: (d) => ipcRenderer.invoke(WS_IPC.setDirty, d),
+  onSaveBeforeClose: (cb) => {
+    const h = (_e: Electron.IpcRendererEvent, token: string) => {
+      const reply = `${WS_IPC.saved}:${token}`;
+      void cb().then((ok) => ipcRenderer.send(reply, ok), () => ipcRenderer.send(reply, false));
+    };
+    ipcRenderer.on('ws:save-before-close', h);
+    return () => ipcRenderer.removeListener('ws:save-before-close', h);
+  },
+  onOpenRequest: (cb) => {
+    const h = (_e: Electron.IpcRendererEvent, path: string) => cb(path);
+    ipcRenderer.on('ws:open-request', h);
+    return () => ipcRenderer.removeListener('ws:open-request', h);
+  },
+  e2eSetDialogPaths: (paths) => ipcRenderer.invoke(WS_IPC.e2e, paths),
 };
 
 contextBridge.exposeInMainWorld('huskylog', api);

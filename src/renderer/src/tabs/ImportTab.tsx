@@ -2,6 +2,7 @@ import { useApp } from '../store';
 import { useLogs } from '../data/logs';
 import { useMedia } from '../data/media';
 import { fmtTime } from '../data/timeline';
+import { MissingFiles } from '../workspace/FileMenu';
 
 const fmtSize = (n: number) => (n > 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`);
 
@@ -18,6 +19,7 @@ export function ImportTab() {
         Logs are parsed in the background; videos are read in place (nothing is copied). .tlog and CSV importers arrive in Phase 8.
       </p>
       <button className="primary" onClick={async () => addFiles(await window.huskylog.openFiles())}>Add files…</button>
+      <MissingFiles />
 
       {order.length > 0 && (
         <>

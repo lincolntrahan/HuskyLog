@@ -90,3 +90,10 @@ export const referenceId = () => Object.values(useSync.getState().solution.strea
 export const isSynced = (id: string) => { const s = streamSolution(id); return !!s && s.status !== 'unsynced'; };
 export const localToMaster = (id: string, t: number) => { const s = streamSolution(id); return s ? toMaster(s, t) : t; };
 export const masterToLocal = (id: string, t: number) => { const s = streamSolution(id); return s ? toLocal(s, t) : t; };
+
+/** Restores saved sync state (workspace) and keeps new event ids unique. */
+export function restoreSync(s: { events: SyncEvent[]; markers: Record<string, { eventId: string; t: number }[]>; options: Record<string, StreamOptions>; reference: string | null }): void {
+  for (const e of s.events) { const k = /^ev(\d+)$/.exec(e.id); if (k) nextEvent = Math.max(nextEvent, Number(k[1]) + 1); }
+  const next = { events: s.events, markers: s.markers, options: s.options, reference: s.reference };
+  useSync.setState({ ...next, solution: resolve(next) });
+}

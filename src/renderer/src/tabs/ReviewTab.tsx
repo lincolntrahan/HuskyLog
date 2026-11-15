@@ -69,6 +69,14 @@ function HeaderActions({ containerApi, group, location }: IDockviewHeaderActions
 }
 
 let counter = 0;
+let readyResolve: (api: DockviewApi) => void = () => undefined;
+const ready = new Promise<DockviewApi>((r) => { readyResolve = r; });
+/** Resolves once the Review dock exists (workspace restore waits for it). */
+export const whenDockReady = () => ready;
+/** After loading a layout: new windows must not reuse saved window ids. */
+export function syncWindowCounter(api: DockviewApi): void {
+  for (const p of api.panels) { const m = /-(d+)$/.exec(p.id); if (m) counter = Math.max(counter, Number(m[1])); }
+}
 export function addWindow(api: DockviewApi, type: string) {
   counter += 1;
   api.addPanel({ id: `${type}-${counter}`, component: type, title: TITLES[type] ?? type });
@@ -97,6 +105,7 @@ export function ReviewTab() {
     e.api.getPanel('video-0')?.api.setActive();
     e.api.getPanel('messages-0')?.api.setActive();
     e.api.getPanel('graph-0')?.api.setSize({ height: 430 });
+    readyResolve(e.api);
   }, []);
 
   const add = (type: string) => apiRef.current && addWindow(apiRef.current, type);

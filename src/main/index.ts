@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { IPC, type OpenedFile } from '../shared/ipc';
 import { allowFile, handleHlFile, registerHlFileScheme } from './hlFileProtocol';
 import { cancelDownload, deleteArea, download, estimate, handleTilesProtocol, listAreas } from './mapCache';
-import { flushWindowState, mainBounds, popoutBounds, popoutKey, trackMain, trackPopout } from './windowState';
+import { flushWindowState, mainBounds, onScreen, popoutBounds, popoutKey, trackMain, trackPopout } from './windowState';
+import { installCloseGuard, openPathFromArgv, preloadSession, registerWorkspaceIpc } from './workspaceService';
 
 const DEV_URL = process.env['ELECTRON_RENDERER_URL']; // set by electron-vite in dev
 const E2E = process.env['HUSKYLOG_E2E'] === '1';
@@ -16,7 +17,21 @@ const blocked: string[] = [];
 
 registerHlFileScheme();
 // Test runs use a throwaway profile so they never touch the user's presets/settings.
-if (E2E) app.setPath('userData', join(tmpdir(), 'huskylog-e2e-profile'));
+// HUSKYLOG_PROFILE lets a test act as a second computer (fresh profile).
+if (E2E) app.setPath('userData', process.env['HUSKYLOG_PROFILE'] ?? join(tmpdir(), 'huskylog-e2e-profile'));
+
+// One running instance: double-clicking a .hlpack/.hlws while HuskyLog is open
+// hands the file to the existing window (which asks about unsaved changes).
+// Test runs skip this so they never collide with an installed copy.
+if (!E2E && !app.requestSingleInstanceLock()) app.quit();
+app.on('second-instance', (_e, argv) => {
+  const win = BrowserWindow.getAllWindows().find((w) => !w.webContents.getURL().includes('popout.html'));
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.focus();
+  const p = openPathFromArgv(argv);
+  if (p) win.webContents.send('ws:open-request', p);
+});
 
 /** Production UI is served from app://huskylog/ so pages have a real, same-origin
  *  origin (needed for pop-out windows and a strict CSP). */
@@ -65,6 +80,14 @@ function placement(w: number, h: number, offset = 0): { x?: number; y?: number }
   return { x: a.x + Math.max(0, Math.round((a.width - w) / 2)) + offset, y: a.y + Math.max(0, Math.round((a.height - h) / 2)) + offset };
 }
 
+/** window.open() features ("left=…,top=…,width=…,height=…") as bounds. */
+function featureBounds(features: string): Electron.Rectangle | undefined {
+  const f = Object.fromEntries(features.split(',').map((kv) => kv.split('=').map((s) => s.trim())).filter((p) => p.length === 2)) as Record<string, string>;
+  const n = (k: string) => (f[k] !== undefined && Number.isFinite(Number(f[k])) ? Math.round(Number(f[k])) : undefined);
+  const x = n('left'), y = n('top'), width = n('width'), height = n('height');
+  return x !== undefined && y !== undefined && width && height && width > 100 && height > 80 ? { x, y, width, height } : undefined;
+}
+
 function createMainWindow(): BrowserWindow {
   // Test runs on another display open without stealing keyboard focus, and
   // never reuse a remembered position on the primary monitor.
@@ -99,6 +122,7 @@ function createMainWindow(): BrowserWindow {
     if (quiet) win.showInactive(); else win.show();
   });
   trackMain(win, saved?.bounds);
+  installCloseGuard(win);
 
   // Compare protocol + host: URL.origin is "null" for custom schemes like app://.
   const home = new URL(DEV_URL ?? APP_ORIGIN);
@@ -113,15 +137,19 @@ function createMainWindow(): BrowserWindow {
   // Pop-outs: allow same-origin popout.html (opened by dockview) as real OS windows.
   // Each pop-out reopens where that window (or that window type) last was,
   // if the monitor is still connected (monitor memory).
-  win.webContents.setWindowOpenHandler(({ url }) => {
+  win.webContents.setWindowOpenHandler(({ url, features }) => {
     if (sameOrigin(url) && new URL(url).pathname.endsWith('/popout.html')) {
       const key = popoutKey(url);
       const prev = popoutBounds(key.id, key.type, quiet);
+      // Without memory on this computer (e.g. a workspace from another laptop),
+      // use the position stored in the layout if it is on a connected monitor.
+      const asked = featureBounds(features);
+      const fromLayout = asked && onScreen(asked) && !(quiet && screen.getDisplayMatching(asked).id === screen.getPrimaryDisplay().id) ? asked : undefined;
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
           ...windowChrome(), title: 'HuskyLog', width: 900, height: 600, ...placement(900, 600, 60),
-          ...(prev?.bounds ?? {}),
+          ...(prev?.bounds ?? fromLayout ?? {}),
           ...(quiet ? { focusable: false } : {}),
           webPreferences: { backgroundThrottling: false },
         },
@@ -211,12 +239,16 @@ function registerIpc(): void {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   handleAppScheme();
   handleHlFile();
   handleTilesProtocol();
   installOfflineGuard();
   registerIpc();
+  registerWorkspaceIpc();
+  // Launched by double-clicking a .hlpack / .hlws (file association).
+  const launchFile = openPathFromArgv(process.argv);
+  if (launchFile) await preloadSession(launchFile);
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

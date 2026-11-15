@@ -1,4 +1,6 @@
 import { createFile, MP4BoxBuffer, DataStream } from 'mp4box';
+import type { SrcTrack } from '@core/pack/mp4mux';
+import { srcTrack, type Mp4Like } from '@core/pack/mp4src';
 
 /**
  * Random access to MP4/MOV video and audio without loading the file:
@@ -266,6 +268,24 @@ export class MediaSource {
     const rms = new Float32Array(n);
     for (let b = 0; b < n; b++) rms[b] = cnt[b] ? Math.sqrt(sumSq[b]! / cnt[b]!) : 0;
     return { start: t0, binDt, min, max, rms };
+  }
+
+  /** Decoder config of the video track (re-encode in Pack & Go). */
+  get videoDecoderConfig(): VideoDecoderConfig { return this.vConfig; }
+
+  /** Reads a byte range of the file (re-encode reads sample data with it). */
+  readRange(start: number, end: number): Promise<ArrayBuffer> { return this.read(start, end); }
+
+  /** Raw track tables plus the original stsd bytes, for the MP4 muxer (Pack & Go trim). */
+  async muxSource(): Promise<{ video?: SrcTrack; audio?: SrcTrack }> {
+    const info = this.file.getInfo() as unknown as { videoTracks: { id: number }[]; audioTracks: { id: number }[] };
+    const get = async (id: number | undefined, kind: 'video' | 'audio'): Promise<SrcTrack | undefined> => {
+      if (id === undefined) return undefined;
+      const r = srcTrack(this.file as unknown as Mp4Like, { id, kind });
+      const stsd = new Uint8Array(await this.read(r.stsdRange.start, r.stsdRange.start + r.stsdRange.size));
+      return { ...r.track, stsd };
+    };
+    return { video: await get(info.videoTracks[0]?.id, 'video'), audio: await get(info.audioTracks[0]?.id, 'audio') };
   }
 
   dispose() {

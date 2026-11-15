@@ -13,6 +13,7 @@ export interface LogStream {
   id: string;
   name: string;
   path: string;
+  size?: number;
   status: 'loading' | 'ready' | 'error';
   progress: number;
   phase: 'reading' | 'indexing';
@@ -61,12 +62,14 @@ function call(req: DistOmit<WorkerRequest, 'id'>, onProgress?: (r: WorkerRespons
 // ---- public API ----
 export const isLogFile = (f: OpenedFile) => /\.bin$/i.test(f.name);
 
-export async function openLog(file: OpenedFile): Promise<void> {
+/** Opens a log. A workspace passes the saved id and name so markers and windows still match. */
+export async function openLog(file: OpenedFile, opts: { id?: string; name?: string } = {}): Promise<void> {
   const existing = Object.values(useLogs.getState().logs).find((l) => l.path === file.path);
   if (existing) return;
-  const id = `log${nextId++}`;
+  let id = opts.id ?? '';
+  while (!id || useLogs.getState().logs[id]) id = `log${nextId++}`;
   useLogs.setState((s) => ({
-    logs: { ...s.logs, [id]: { id, name: file.name.replace(/\.bin$/i, ''), path: file.path, status: 'loading', progress: 0, phase: 'reading' } },
+    logs: { ...s.logs, [id]: { id, name: opts.name ?? file.name.replace(/\.bin$/i, ''), path: file.path, size: file.size, status: 'loading', progress: 0, phase: 'reading' } },
     order: [...s.order, id],
   }));
   try {
