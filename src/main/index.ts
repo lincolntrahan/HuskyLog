@@ -7,7 +7,7 @@ import { IPC, type OpenedFile } from '../shared/ipc';
 import { allowFile, handleHlFile, registerHlFileScheme } from './hlFileProtocol';
 import { cancelDownload, deleteArea, download, estimate, handleTilesProtocol, listAreas } from './mapCache';
 import { flushWindowState, mainBounds, onScreen, popoutBounds, popoutKey, trackMain, trackPopout } from './windowState';
-import { installCloseGuard, openPathFromArgv, preloadSession, registerWorkspaceIpc } from './workspaceService';
+import { installCloseGuard, openPathFromArgv, preloadSession, registerExportIpc, registerWorkspaceIpc } from './workspaceService';
 
 const DEV_URL = process.env['ELECTRON_RENDERER_URL']; // set by electron-vite in dev
 const E2E = process.env['HUSKYLOG_E2E'] === '1';
@@ -246,6 +246,7 @@ app.whenReady().then(async () => {
   installOfflineGuard();
   registerIpc();
   registerWorkspaceIpc();
+  registerExportIpc();
   // Launched by double-clicking a .hlpack / .hlws (file association).
   const launchFile = openPathFromArgv(process.argv);
   if (launchFile) await preloadSession(launchFile);

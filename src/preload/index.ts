@@ -54,6 +54,9 @@ const api: HuskyLogApi = {
     return () => ipcRenderer.removeListener('ws:open-request', h);
   },
   e2eSetDialogPaths: (paths) => ipcRenderer.invoke(WS_IPC.e2e, paths),
+  exportPickPath: (name, kind) => ipcRenderer.invoke(WS_IPC.exportPick, name, kind),
+  exportWriteFile: (path, data) => ipcRenderer.invoke(WS_IPC.exportWriteFile, path, data),
+  exportWriteMp4: (path, spec) => ipcRenderer.invoke(WS_IPC.exportWriteMp4, path, spec),
 };
 
 contextBridge.exposeInMainWorld('huskylog', api);

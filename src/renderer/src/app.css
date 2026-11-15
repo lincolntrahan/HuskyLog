@@ -271,3 +271,11 @@ progress { width: 140px; }
 .toast { position: fixed; right: 16px; bottom: 36px; z-index: 120; max-width: 520px; padding: 8px 10px; background: var(--bg-2); border: 1px solid #a33; border-radius: 6px; }
 .missing { margin: 10px 0; padding: 10px 12px; border: 1px solid #b8860b; border-radius: 6px; background: rgba(184,134,11,.08); display: grid; gap: 6px; }
 .missing-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* Export dialog (DESIGN 10) */
+.modal.export { width: min(900px, 94vw); }
+.export-grid { display: grid; grid-template-columns: 1fr 370px; gap: 14px; align-items: start; }
+.ex-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+.ex-row > b { width: 70px; color: var(--fg-dim); font-weight: normal; }
+.ex-preview canvas { width: 360px; background: #000; border: 1px solid var(--border); display: block; }
+.spacer { flex: 1; }

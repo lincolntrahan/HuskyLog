@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../overlay/OverlayLayer';
+import { registerExportSource } from '../export/registry';
 import type { OverlayItem } from '../overlay/model';
 import { drawAdi, type AdiState } from '../adi/drawAdi';
 import { channelExists, loadChannel, primaryLog, useLogs, type LoadedChannel } from '../data/logs';
@@ -43,24 +44,31 @@ export function AdiPanel({ api, params }: IDockviewPanelProps<{ adi?: AdiCfg; ov
       }
       const ctx = canvas.getContext('2d')!;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const t = useTimeline.getState().t;
-      const v = (id: string) => { const c = ch[id]; return c ? sampleAt(c.t, c.v, t) : undefined; };
-      const yaw = ch['ATT.Yaw'];
-      const mode = sum?.modes.find((m) => t >= m.t0 && t < m.t1)?.name;
-      const armed = sum ? sum.armed.some(([a, b]) => t >= a && t < b) : undefined;
-      const state: AdiState = {
-        roll: v('ATT.Roll') ?? 0, pitch: v('ATT.Pitch') ?? 0, heading: yaw ? sampleAngleAt(yaw.t, yaw.v, t) : 0,
-        airspeed: v(cfg.speed), altitude: v(cfg.alt), mode, armed,
-        speedLabel: 'm/s', altLabel: 'm',
-      };
+      const state = stateAt(useTimeline.getState().t);
       drawAdi(ctx, w, h, state);
       (window.__hl as Record<string, unknown>)[`adi:${api.id}`] = state;
+    };
+    const stateAt = (t: number): AdiState => {
+      const v = (id: string) => { const c = ch[id]; return c ? sampleAt(c.t, c.v, t) : undefined; };
+      const yaw = ch['ATT.Yaw'];
+      return {
+        roll: v('ATT.Roll') ?? 0, pitch: v('ATT.Pitch') ?? 0, heading: yaw ? sampleAngleAt(yaw.t, yaw.v, t) : 0,
+        airspeed: v(cfg.speed), altitude: v(cfg.alt),
+        mode: sum?.modes.find((m) => t >= m.t0 && t < m.t1)?.name,
+        armed: sum ? sum.armed.some(([a, b]) => t >= a && t < b) : undefined,
+        speedLabel: 'm/s', altLabel: 'm',
+      };
     };
     draw();
     const unsub = useTimeline.subscribe((s, p) => { if (s.t !== p.t) draw(); });
     const ro = new ResizeObserver(draw);
     ro.observe(box);
-    return () => { unsub(); ro.disconnect(); };
+    // Export draws the vector instrument directly at the output size.
+    const unreg = registerExportSource({
+      id: api.id, type: 'adi', title: api.title ?? 'Horizon', content: () => boxRef.current,
+      draw: async (c, t, w, h) => { drawAdi(c as CanvasRenderingContext2D, w, h, stateAt(t)); },
+    });
+    return () => { unsub(); ro.disconnect(); unreg(); };
   }, [ch, cfg, log?.summary, api.id]);
 
   return (

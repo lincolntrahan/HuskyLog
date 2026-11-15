@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../overlay/OverlayLayer';
+import { registerExportSource } from '../export/registry';
 import type { OverlayItem } from '../overlay/model';
 // Import from @cesium/engine (not the `cesium` umbrella package): the umbrella
 // pulls in Cesium's Knockout-based widgets, which need eval() and break our
@@ -92,6 +93,7 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
     let stopped = false;
     let raf = 0;
     let rafWin: Window | null = null;
+    let snapReq: { t: number; frames: number; deadline: number; done: (c: HTMLCanvasElement) => void } | null = null;
     let lastTick = 0;
     let past: Primitive | null = null;
     let pastIdx = -1;
@@ -281,9 +283,17 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
         if (viewer && canvas && el.isConnected && el.clientWidth > 0 && el.clientHeight > 0) {
           viewer.resize();
           if (canvas.width > 0 && canvas.height > 0) {
-            updatePose(useTimeline.getState().t);
+            const tNow = useTimeline.getState().t;
+            updatePose(tNow);
             viewer.render();
             d.frames += 1;
+            // Export: copy the frame rendered for the requested time once the
+            // cached tiles have loaded (WebGL pixels are only valid right after render).
+            const req = snapReq;
+            if (req && req.t === tNow && (++req.frames >= 2) && (viewer.scene.globe.tilesLoaded || performance.now() > req.deadline)) {
+              snapReq = null;
+              req.done(canvas);
+            }
           }
           const gl = (viewer.scene as unknown as { context: { _gl: WebGLRenderingContext } }).context._gl;
           d.contextLost = gl.isContextLost();
@@ -300,6 +310,16 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
     const watchdog = window.setInterval(() => {
       if (!stopped && performance.now() - lastTick > 500 && (rafWin?.closed || rafWin !== el.ownerDocument.defaultView)) tick();
     }, 250);
+    const unregExport = registerExportSource({
+      id, type: 'map3d', title: api.title ?? '3D Map', content: () => hostRef.current?.parentElement ?? null,
+      draw: (c, t, w, h) => new Promise<void>((resolve) => {
+        const fallback = window.setTimeout(() => { snapReq = null; resolve(); }, 15000);
+        snapReq = {
+          t, frames: 0, deadline: performance.now() + 5000,
+          done: (cv) => { window.clearTimeout(fallback); c.drawImage(cv, 0, 0, w, h); resolve(); },
+        };
+      }),
+    });
     const hl = window.__hl as Record<string, unknown>;
     hl[`snapshot:${id}`] = () => meanBrightness(viewer);
     hl[`camera:${id}`] = () => (viewer ? readCamera(viewer) : null);
@@ -313,6 +333,7 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
 
     return () => {
       stopped = true;
+      unregExport();
       window.clearInterval(watchdog);
       if (rafWin && !rafWin.closed) rafWin.cancelAnimationFrame(raf);
       teardown();
