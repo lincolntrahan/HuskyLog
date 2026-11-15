@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { provideMissing, saveSession, sessionName, useSession } from '../data/workspace';
 import { estimatePack, packAndGo, trimBasis, type PackEstimate, type PackPhase, type VideoMode } from '../pack/packer';
+import { checkForUpdatesNow } from './Updates';
 
 /**
  * File menu (DESIGN §11): New, Open, Save, Save As, Pack & Go, plus the
@@ -74,6 +75,8 @@ export function FileMenu() {
           {item('Save As…', 'Ctrl+Shift+S', () => void saveSession(true), 'Save as a workspace file (.hlws) that refers to your files where they are')}
           <div className="menu-sep" />
           {item('Pack & Go…', '', () => usePackUi.setState({ open: true }), 'One file with the logs, videos and maps of this session, to open on another computer')}
+          <div className="menu-sep" />
+          {item('Check for updates…', '', () => void checkForUpdatesNow(), 'Looks for a newer HuskyLog on GitHub')}
         </div>
       )}
       <span className="session-name" title={s.path ?? 'Not saved yet'}>

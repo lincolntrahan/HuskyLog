@@ -29,3 +29,10 @@ fileAssociations:
   - ext: hlws
     name: HuskyLog Workspace
     description: HuskyLog workspace
+# Auto-update feed: GitHub Releases of this repo (electron-updater reads
+# latest.yml from the newest published release).
+publish:
+  provider: github
+  owner: lincolntrahan
+  repo: HuskyLog
+  releaseType: release

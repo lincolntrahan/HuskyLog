@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, WS_IPC, type HuskyLogApi, type MapProgress, type PackProgress } from '../shared/ipc';
+import { IPC, UPDATE_IPC, WS_IPC, type HuskyLogApi, type MapProgress, type PackProgress, type UpdateStatus } from '../shared/ipc';
 
 const api: HuskyLogApi = {
   openFiles: () => ipcRenderer.invoke(IPC.openFiles),
@@ -57,6 +57,15 @@ const api: HuskyLogApi = {
   exportPickPath: (name, kind) => ipcRenderer.invoke(WS_IPC.exportPick, name, kind),
   exportWriteFile: (path, data) => ipcRenderer.invoke(WS_IPC.exportWriteFile, path, data),
   exportWriteMp4: (path, spec) => ipcRenderer.invoke(WS_IPC.exportWriteMp4, path, spec),
+  // Updates
+  updateStatus: () => ipcRenderer.invoke(UPDATE_IPC.get),
+  checkForUpdates: () => ipcRenderer.invoke(UPDATE_IPC.check),
+  installUpdate: () => ipcRenderer.invoke(UPDATE_IPC.install),
+  onUpdateStatus: (cb) => {
+    const h = (_e: Electron.IpcRendererEvent, s: UpdateStatus) => cb(s);
+    ipcRenderer.on(UPDATE_IPC.status, h);
+    return () => ipcRenderer.removeListener(UPDATE_IPC.status, h);
+  },
 };
 
 contextBridge.exposeInMainWorld('huskylog', api);

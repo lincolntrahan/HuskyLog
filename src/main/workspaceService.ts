@@ -410,3 +410,6 @@ export function registerExportIpc(): void {
     return statSync(path).size;
   });
 }
+
+/** Lets the next window close go through without the unsaved-changes prompt (update install). */
+export function allowClose(): void { forceClose = true; }
