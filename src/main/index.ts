@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { IPC, type OpenedFile } from '../shared/ipc';
 import { allowFile, handleHlFile, registerHlFileScheme } from './hlFileProtocol';
 import { cancelDownload, deleteArea, download, estimate, handleTilesProtocol, listAreas } from './mapCache';
+import { flushWindowState, mainBounds, popoutBounds, popoutKey, trackMain, trackPopout } from './windowState';
 
 const DEV_URL = process.env['ELECTRON_RENDERER_URL']; // set by electron-vite in dev
 const E2E = process.env['HUSKYLOG_E2E'] === '1';
@@ -65,11 +66,16 @@ function placement(w: number, h: number, offset = 0): { x?: number; y?: number }
 }
 
 function createMainWindow(): BrowserWindow {
+  // Test runs on another display open without stealing keyboard focus, and
+  // never reuse a remembered position on the primary monitor.
+  const quiet = process.env['HUSKYLOG_DISPLAY'] === 'secondary';
+  const saved = mainBounds(quiet);
   const win = new BrowserWindow({
     ...windowChrome(),
     width: 1500,
     height: 950,
     ...placement(1500, 950),
+    ...(saved?.bounds ?? {}),
     show: false,
     title: 'HuskyLog',
     webPreferences: {
@@ -82,9 +88,17 @@ function createMainWindow(): BrowserWindow {
       backgroundThrottling: false,
     },
   });
-  // Test runs on another display open without stealing keyboard focus.
-  const quiet = process.env['HUSKYLOG_DISPLAY'] === 'secondary';
-  win.once('ready-to-show', () => (quiet ? win.showInactive() : win.show()));
+  // Re-apply the exact bounds after creation: on a display scaled differently
+  // from the primary, constructor sizes get rounded (the window crept ~5 px
+  // wider per launch on a 125 % monitor). Re-applying them keeps the error to
+  // a pixel or two, and windowState ignores drift that small when saving.
+  if (saved) win.setBounds(saved.bounds);
+  win.once('ready-to-show', () => {
+    if (saved) win.setBounds(saved.bounds); // again, once the DPI of the target monitor applies
+    if (saved?.maximized) win.maximize();
+    if (quiet) win.showInactive(); else win.show();
+  });
+  trackMain(win, saved?.bounds);
 
   // Compare protocol + host: URL.origin is "null" for custom schemes like app://.
   const home = new URL(DEV_URL ?? APP_ORIGIN);
@@ -97,18 +111,30 @@ function createMainWindow(): BrowserWindow {
     }
   };
   // Pop-outs: allow same-origin popout.html (opened by dockview) as real OS windows.
+  // Each pop-out reopens where that window (or that window type) last was,
+  // if the monitor is still connected (monitor memory).
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (sameOrigin(url) && new URL(url).pathname.endsWith('/popout.html')) {
+      const key = popoutKey(url);
+      const prev = popoutBounds(key.id, key.type, quiet);
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
-          ...windowChrome(), title: 'HuskyLog', ...placement(900, 600, 60),
+          ...windowChrome(), title: 'HuskyLog', width: 900, height: 600, ...placement(900, 600, 60),
+          ...(prev?.bounds ?? {}),
           ...(quiet ? { focusable: false } : {}),
           webPreferences: { backgroundThrottling: false },
         },
       };
     }
     return { action: 'deny' };
+  });
+  win.webContents.on('did-create-window', (child, { url }) => {
+    const key = popoutKey(url);
+    const prev = popoutBounds(key.id, key.type, quiet);
+    if (prev) child.setBounds(prev.bounds); // see createMainWindow
+    trackPopout(child, key.id, key.type, prev?.bounds);
+    if (prev?.maximized) child.maximize();
   });
   win.webContents.on('will-navigate', (e, url) => {
     if (!sameOrigin(url)) e.preventDefault();
@@ -205,4 +231,5 @@ app.on('web-contents-created', (_e, contents) => {
   });
 });
 
+app.on('before-quit', () => flushWindowState());
 app.on('window-all-closed', () => app.quit());

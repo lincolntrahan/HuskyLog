@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { installGlobalKeys } from '../keys';
 import { useLogs } from '../data/logs';
 import { fmtTime, timeDomain, useTimeline } from '../data/timeline';
 
@@ -10,15 +11,8 @@ export function TimelineBar() {
   const { t, playing, speed, range, setT, setPlaying, setSpeed, setRange } = useTimeline();
   const [a, b] = timeDomain();
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
-      if (e.code === 'Space') { e.preventDefault(); setPlaying(!useTimeline.getState().playing); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [setPlaying]);
+  // Space / arrows / Home / End (pop-outs install the same keys when they open).
+  useEffect(() => installGlobalKeys(window), []);
 
   return (
     <div className="timeline">

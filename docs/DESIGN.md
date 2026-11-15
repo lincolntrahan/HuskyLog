@@ -447,19 +447,30 @@ interface OverlayItem {
   id: string;
   kind: 'readout' | 'adi';
   rect: { x: number; y: number; w: number; h: number }; // normalized 0–1
-  style: { font: number; color: string; bg: string; opacity: number };
+  style: { color: string; bg: string; opacity: number; align: 'left' | 'center' | 'right' };
+  stream?: string;                 // log the sources come from (default: primary)
+  sample?: 'interp' | 'hold';      // between samples
   // readout:
-  lines?: { label: string; source: string /* channel or expr */;
-            format: string /* e.g. "%.1f" */; unit?: string }[];
+  lines?: { label: string;
+            source: string /* channel, named or inline expression, @mode/@armed/@time/@local */;
+            format: string /* printf: %.1f, %d, %+.2f, %,d, %.3e */; unit?: string }[];
+  // adi:
+  hud?: boolean;                   // see-through lines (default) or filled ball
+  tapes?: boolean;
 }
 ```
 
-- Overlays can be dragged and resized in **edit mode** (toggle). Positions are
-  normalized, so they survive window resizes and export resolutions.
-- Readouts show a value **at `tMaster`** (sample-and-hold or interpolated, set per
-  readout).
-- Any window can have them. Video is the main case, but a map or graph can carry
-  them too.
+- Overlays can be dragged and resized in **edit mode** (▣ in the window
+  header). Positions are normalized, so they survive window resizes and export
+  resolutions. Text auto-fits its box (no font size), for the same reason.
+- Readouts show a value **at `tMaster`** through the log's sync mapping
+  (sample-and-hold or interpolated, set per readout). Outside the data, or
+  across a gap, they show "–".
+- Map, Video, Graph and Horizon windows have them. The table windows (Messages,
+  Parameters) don't.
+- Items are stored in the window's dockview parameters, so the layout JSON (and
+  the Phase 6 workspace) carries them. Live drawing and export share
+  `drawOverlays(ctx, w, h, items, tMaster)`.
 
 ---
 
@@ -906,5 +917,69 @@ log 297.5 s, clock +300 ppm; flash plus audio at log 314.20 s and 400.00 s):
 **Deferred:**
 - Auto-suggest offsets from file timestamps (Phase 8, together with tlog↔bin).
 - Sync state is in memory until the workspace file (Phase 6).
-- Digital zoom/crop in the Video window (Phase 5, with overlays).
+- ~~Digital zoom/crop in the Video window~~ (done in Phase 5).
 - Matroska/WebM import.
+
+## Appendix F. Phase 5 Results (2026-11-15)
+
+**Delivered:**
+- **Overlays (§7.7)** on the Map, Video, Graph and Horizon windows:
+  - **readouts:** any number of lines, each a channel, a named or inline
+    expression, or `@mode` / `@armed` / `@time` / `@local`; printf-style
+    formats; units; interpolate or hold; text auto-fits its box;
+  - **horizon overlay:** the ADI drawing code in a new see-through HUD style
+    (horizon, ladder and roll scale with a dark halo, readable over video), or
+    the filled ball, with optional tapes;
+  - **edit mode** (▣ in the window header): add, select, drag (snaps to edges
+    and centre; Alt disables snapping), resize with eight handles, nudge with
+    the arrow keys, delete with Del, and a properties panel that opens on the
+    side away from the selection. Unknown channels and bad formats are flagged
+    while typing, with the current value shown live;
+  - normalized rects stored in the window's parameters, so they are in the
+    layout JSON.
+- **Video digital zoom/crop:** wheel zooms about the cursor (up to 8×), drag
+  pans, double-click or the badge resets. Overlays stay fixed while the frame
+  zooms. The zoom rect is saved per window and maps directly to an export crop
+  (`cropRect`).
+- **Pop-out polish:**
+  - **monitor memory:** the main window and each pop-out reopen where they last
+    were (by window id, then window type, then the last pop-out), within a
+    session and across restarts; if that monitor is gone, the default placement
+    applies;
+  - review keys (Space, ←/→ step 1/30 s, Shift 1 s, Home/End) work inside
+    pop-outs;
+  - pop-out windows are titled after their window ("HuskyLog — Video").
+
+**Verified:** 10 new unit tests (67 total). `scripts/e2e-phase5.mjs` (30
+checks, three app launches, run on the secondary monitor):
+- readout values match the log (altitude; `BAT.Volt * BAT.Curr` at a BAT
+  sample; flight mode), follow the playhead, and flag an unknown channel;
+- drag, corner resize and arrow nudge produce the expected normalized rects;
+- relative position holds when the window shrinks from 746 to 420 px;
+- the HUD paints about 8 % of its box;
+- zoom keeps the point under the cursor fixed;
+- the Video window with overlays pops out, renders and can be edited there;
+  Space and arrow keys work in it;
+- moved pop-out and main windows come back at the same place after docking
+  back and after a restart, and fall back to a connected monitor when the
+  saved position is off-screen.
+
+Phases 0–4 harnesses still pass.
+
+**Design changes:**
+- No font size on overlays: text fits its box, so a readout looks the same at
+  any window or export size.
+- Saved window bounds are re-applied with `setBounds` after creation, and
+  changes of ≤ 2 px from the restored bounds are not saved. On a monitor
+  scaled differently from the primary (125 % here), Windows rounds sizes on
+  every restore, and saving the rounded size made the main window grow ~5 px
+  per launch.
+- Window-state events: `move`/`resize` (not `moved`/`resized`, which don't
+  fire for programmatic changes), and a pop-out closed by dockview gets
+  `closed` but no `close`, so bounds are recorded continuously.
+
+**Deferred:**
+- Workspace save of overlays, zoom and pop-out layout (Phase 6; the data is
+  already in the layout JSON).
+- Overlay drawing in export (Phase 7 uses `drawOverlays` and `cropRect`).
+- Overlays on the table windows.

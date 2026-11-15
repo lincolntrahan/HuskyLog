@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
+import { OverlayLayer } from '../overlay/OverlayLayer';
+import type { OverlayItem } from '../overlay/model';
 // Import from @cesium/engine (not the `cesium` umbrella package): the umbrella
 // pulls in Cesium's Knockout-based widgets, which need eval() and break our
 // strict Content-Security-Policy. We build our own UI anyway.
@@ -47,7 +49,7 @@ function areasCover(areas: MapArea[], b: BBox): boolean {
   return areas.some((a) => a.bbox[0] <= b[0] && a.bbox[1] <= b[1] && a.bbox[2] >= b[2] && a.bbox[3] >= b[3]);
 }
 
-export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg }>) {
+export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; overlays?: OverlayItem[] }>) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [cfg, setCfgState] = useState<MapCfg>(params?.map ?? { camera: 'free', alt: 'relative' });
   const setCfg = (c: MapCfg) => { setCfgState(c); api.updateParameters({ map: c }); };
@@ -322,6 +324,7 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg }
   return (
     <div className="hl-panel map-panel">
       <div ref={hostRef} className="map-host" />
+      <OverlayLayer api={api} initial={params?.overlays} />
       <div className="map-bar">
         {modes.map(([m, label, title]) => (
           <button key={m} className={cfg.camera === m ? 'primary' : ''} title={title} onClick={() => setCfg({ ...cfg, camera: m })} disabled={!track && m !== 'free'}>{label}</button>
