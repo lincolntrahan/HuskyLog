@@ -163,3 +163,22 @@ progress { width: 140px; }
 .sug-kind.k-named { color: #3ddc97; }
 .sug-kind.k-channel { color: #4ea1ff; }
 .expr-msg.hint { color: #c792ea; }
+
+/* 3D map */
+.map-panel { position: relative; }
+.map-host { position: absolute; inset: 0; }
+.map-bar { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; z-index: 5; flex-wrap: wrap; }
+.map-bar button, .map-bar select { background: rgba(27, 31, 38, 0.85); }
+.map-bar button.primary { background: #1f4f86; }
+.map-banner { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 5; background: rgba(27, 31, 38, 0.92); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; display: flex; gap: 8px; align-items: center; }
+.cache-modal { width: 640px; max-height: calc(100% - 24px); overflow: auto; }
+.cache-modal h4 { margin: 14px 0 6px; }
+.form-grid { display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; align-items: center; }
+.small { font-size: 11px; }
+.dl { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.dl progress { flex: 1; }
+
+/* Horizon */
+.adi-panel { position: relative; }
+.adi-gear { position: absolute; top: 4px; right: 4px; padding: 0 6px; background: rgba(27,31,38,.8); }
+.adi-settings { position: absolute; top: 30px; right: 4px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px; display: grid; gap: 6px; z-index: 5; }

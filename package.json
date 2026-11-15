@@ -17,7 +17,9 @@
     "gen:testdata": "node scripts/gen-test-video.mjs",
     "dist": "npm run build && electron-builder --win --x64",
     "e2e:phase1": "node scripts/e2e-phase1.mjs",
-    "e2e:phase2": "node scripts/e2e-phase2.mjs"
+    "e2e:phase2": "node scripts/e2e-phase2.mjs",
+    "e2e:phase3": "node scripts/e2e-phase3.mjs",
+    "gen:model": "node scripts/gen-plane-model.mjs"
   },
   "devDependencies": {
     "@cesium/core": "^0.1.1",

@@ -105,6 +105,13 @@ describe.skipIf(!have)('reference log (ArduPlane 4.7.2)', () => {
     expect(esc.fields['RPM']![k]).toBeCloseTo(814, -1);
   });
 
+  it('finds home, FC terrain height and an empty mission', () => {
+    expect(sum.home!.lat).toBeCloseTo(47.66029, 4);
+    expect(sum.home!.lng).toBeCloseTo(-122.10517, 4);
+    expect(sum.terrainAtHome).toBeCloseTo(9.3, 1);
+    expect(sum.mission).toEqual([]); // the one CMD row is all zeros
+  });
+
   it('extracts embedded files', () => {
     const files = extractFiles(bytes, idx);
     expect([...files.keys()]).toContain('@ROMFS/hwdef.dat');

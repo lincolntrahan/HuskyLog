@@ -27,6 +27,9 @@ export interface ModeSpan { t0: number; t1: number; name: string; num: number }
 
 export interface ParamEntry { name: string; value: number; default: number | null; t: number }
 
+export interface GeoPoint { lat: number; lng: number; alt: number; t: number }
+export interface MissionItem { seq: number; cmd: number; lat: number; lng: number; alt: number }
+
 export interface LogSummary {
   vehicle: Vehicle;
   firmware: string;
@@ -39,6 +42,11 @@ export interface LogSummary {
   params: ParamEntry[];
   armed: [number, number][];
   files: string[];
+  /** Home (ORGN type 1) as set at or before arming; alt is AMSL. */
+  home: GeoPoint | null;
+  /** Ground height at home from the FC's own terrain database (TERR.TerrH, AMSL). */
+  terrainAtHome: number | null;
+  mission: MissionItem[];
   diagnostics: { skippedBytes: number; truncatedTail: number; outOfOrder: number; formats: number; types: number };
 }
 
@@ -116,8 +124,19 @@ export function summarize(bytes: Uint8Array, index: LogIndex): LogSummary {
 
   const fileNames = [...new Set(rows('FILE').map((f) => String(f['FileName'])))];
 
+  // Home: the last ORGN type-1 (AHRS home) before the first arming, else the first one.
+  const homes = rows('ORGN').filter((o) => Number(o['Type']) === 1 && Number(o['Lat']) !== 0);
+  const armT = armed[0]?.[0] ?? Infinity;
+  const h = [...homes].reverse().find((o) => o._t <= armT) ?? homes[0];
+  const home = h ? { lat: Number(h['Lat']), lng: Number(h['Lng']), alt: Number(h['Alt']), t: h._t } : null;
+  const terr = rows('TERR').find((r) => Number(r['TerrH']) !== 0 && Number(r['Status']) !== 0);
+  const terrainAtHome = terr ? Number(terr['TerrH']) : null;
+  const mission: MissionItem[] = rows('CMD')
+    .filter((c) => Number(c['Lat']) !== 0 || Number(c['Lng']) !== 0)
+    .map((c) => ({ seq: Number(c['CNum']), cmd: Number(c['CId']), lat: Number(c['Lat']), lng: Number(c['Lng']), alt: Number(c['Alt']) }));
+
   return {
-    vehicle, firmware, board, timeRange: [t0, t1], channels, events, modes, params, armed, files: fileNames,
+    vehicle, firmware, board, timeRange: [t0, t1], channels, events, modes, params, armed, files: fileNames, home, terrainAtHome, mission,
     diagnostics: {
       skippedBytes: index.skippedBytes, truncatedTail: index.truncatedTail, outOfOrder: index.outOfOrder,
       formats: index.formats.size, types: index.stats.size,

@@ -31,6 +31,7 @@ export function registerHlFileScheme(): void {
   protocol.registerSchemesAsPrivileged([
     { scheme: 'hl-file', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
     { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
+    { scheme: 'hl-tiles', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
   ]);
 }
 

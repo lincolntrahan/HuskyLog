@@ -86,9 +86,14 @@ export function parsePreset(json: string): GraphPreset {
   return p;
 }
 
-/** Stable colour for a flight mode band. */
-export function modeColor(name: string): string {
+/** Stable hue (0–360) for a flight mode, shared by graph bands and the map track. */
+export function modeHue(name: string): number {
   let h = 0;
   for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return `hsl(${h} 70% 55%)`;
+  return h;
+}
+
+/** Stable colour for a flight mode band. */
+export function modeColor(name: string): string {
+  return `hsl(${modeHue(name)} 70% 55%)`;
 }
