@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
+import { OverlayLayer } from '../overlay/OverlayLayer';
+import { useOverlays, type OverlayItem } from '../overlay/model';
+import { NO_ZOOM, panBy, zoomAt, zoomTransform, type VideoZoom } from '@core/overlay/zoom';
 import { useMedia, mediaSource } from '../data/media';
 import { masterToLocal, streamSolution, useSync } from '../data/sync';
 import { useApp } from '../store';
 import { fmtTime, useTimeline } from '../data/timeline';
 
-interface VideoCfg { stream?: string; muted: boolean }
+interface VideoCfg { stream?: string; muted: boolean; zoom?: VideoZoom }
 
 /**
  * Video window (DESIGN §7.4, §6.1): shows a video stream at the master playhead
@@ -13,7 +16,7 @@ interface VideoCfg { stream?: string; muted: boolean }
  * Playing: the native <video> element at the playback rate, re-locked to the
  * timeline whenever it drifts more than ~1 frame.
  */
-export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoCfg }>) {
+export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoCfg; overlays?: OverlayItem[] }>) {
   const media = useMedia();
   const [cfg, setCfgState] = useState<VideoCfg>(params?.video ?? { muted: true });
   const setCfg = (c: VideoCfg) => { setCfgState(c); api.updateParameters({ video: c }); };
@@ -23,6 +26,51 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
   const [overlay, setOverlay] = useState<string | null>(null);
   const [showing, setShowing] = useState<'canvas' | 'video'>('canvas');
   const [info, setInfo] = useState('');
+  const stageRef = useRef<HTMLDivElement>(null);
+  const zoom = cfg.zoom ?? NO_ZOOM;
+  const cfgRef = useRef(cfg);
+  cfgRef.current = cfg;
+
+  // Digital zoom/crop: wheel zooms about the cursor, drag pans, double-click resets.
+  useEffect(() => {
+    const stage = stageRef.current!;
+    const host = stage.ownerDocument.defaultView ?? window;
+    const editingHere = () => useOverlays.getState().editing === api.id;
+    const set = (z: VideoZoom) => setCfg({ ...cfgRef.current, zoom: z.s <= 1.0001 ? undefined : z });
+    const onWheel = (e: WheelEvent) => {
+      if (editingHere()) return;
+      e.preventDefault();
+      const r = stage.getBoundingClientRect();
+      const z = cfgRef.current.zoom ?? NO_ZOOM;
+      set(zoomAt(z, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, e.deltaY < 0 ? 1.25 : 0.8));
+    };
+    let drag: { x: number; y: number; z: VideoZoom } | null = null;
+    const onDown = (e: MouseEvent) => {
+      const z = cfgRef.current.zoom;
+      if (!z || e.button !== 0 || editingHere()) return;
+      drag = { x: e.clientX, y: e.clientY, z };
+      e.preventDefault();
+    };
+    const onMove = (e: MouseEvent) => {
+      if (!drag) return;
+      const r = stage.getBoundingClientRect();
+      set(panBy(drag.z, -(e.clientX - drag.x) / r.width, -(e.clientY - drag.y) / r.height));
+    };
+    const onUp = () => { drag = null; };
+    const onDbl = () => { if (!editingHere()) set(NO_ZOOM); };
+    stage.addEventListener('wheel', onWheel, { passive: false });
+    stage.addEventListener('mousedown', onDown);
+    stage.addEventListener('dblclick', onDbl);
+    host.addEventListener('mousemove', onMove);
+    host.addEventListener('mouseup', onUp);
+    return () => {
+      stage.removeEventListener('wheel', onWheel);
+      stage.removeEventListener('mousedown', onDown);
+      stage.removeEventListener('dblclick', onDbl);
+      host.removeEventListener('mousemove', onMove);
+      host.removeEventListener('mouseup', onUp);
+    };
+  }, [api.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ready = media.order.filter((id) => media.videos[id]?.status === 'ready');
   const newest = ready[ready.length - 1];
@@ -118,11 +166,18 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
         {stream && <span className={`small st-${status}`}>{status === 'unsynced' ? 'not synced' : status}</span>}
         {status === 'unsynced' && stream && <button onClick={() => useApp.getState().setTab('sync')}>Open Sync tab</button>}
       </div>
-      <div className="video-stage">
-        <canvas ref={canvasRef} style={{ display: showing === 'canvas' ? 'block' : 'none' }} />
-        <video ref={videoRef} playsInline preload="auto" style={{ display: showing === 'video' ? 'block' : 'none', transform: rot ? `rotate(${rot}deg)` : undefined }} />
+      <div className={`video-stage${cfg.zoom ? ' zoomed' : ''}`} ref={stageRef}>
+        <div className="video-zoom" style={{ transform: zoomTransform(zoom) }}>
+          <canvas ref={canvasRef} style={{ display: showing === 'canvas' ? 'block' : 'none' }} />
+          <video ref={videoRef} playsInline preload="auto" style={{ display: showing === 'video' ? 'block' : 'none', transform: rot ? `rotate(${rot}deg)` : undefined }} />
+        </div>
         {!stream && <div className="placeholder">Import a video on the Import tab.</div>}
         {stream && overlay && <div className="placeholder video-overlay">{overlay}</div>}
+        <OverlayLayer api={api} initial={params?.overlays} />
+        {cfg.zoom && (
+          <span className="video-zoom-badge" title="Digital zoom (wheel to zoom, drag to pan). Click or double-click the video to reset."
+            onClick={() => setCfg({ ...cfg, zoom: undefined })}>{cfg.zoom.s.toFixed(1)}× ✕</span>
+        )}
       </div>
       <div className="video-info">{v?.video ? `${v.video.codec} ${v.video.width}×${v.video.height} ${v.video.fpsAvg.toFixed(2)} fps${v.video.vfr ? ' VFR' : ''}${v.audio ? ` · audio ${v.audio.codec}` : ''} · ${info}` : ' '}</div>
     </div>

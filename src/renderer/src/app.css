@@ -216,3 +216,34 @@ progress { width: 140px; }
 .warn { background: #3a2d10; border: 1px solid #7a5a12; color: #ffd27a; border-radius: 4px; padding: 6px 8px; font-size: 12px; }
 .video-stage video { max-width: 100%; max-height: 100%; }
 .video-overlay { background: rgba(10, 12, 16, 0.55); }
+
+/* Overlays (DESIGN 7.7) */
+.overlay-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.overlay-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.overlay-layer.editing { pointer-events: auto; z-index: 6; }
+.overlay-backdrop { position: absolute; inset: 0; background: rgba(78, 161, 255, 0.06); outline: 1px dashed rgba(78, 161, 255, 0.6); outline-offset: -1px; }
+.overlay-box { position: absolute; border: 1px dashed rgba(255, 255, 255, 0.7); cursor: move; box-sizing: border-box; }
+.overlay-box.sel { border: 1.5px solid var(--accent); }
+.overlay-tag { position: absolute; top: -17px; left: -1px; font-size: 10px; padding: 0 4px; background: rgba(20, 23, 28, 0.85); color: var(--fg-dim); border-radius: 3px 3px 0 0; white-space: nowrap; }
+.overlay-handle { position: absolute; width: 9px; height: 9px; background: var(--accent); border: 1px solid #fff; box-sizing: border-box; margin: -5px 0 0 -5px; }
+.h-nw { left: 0; top: 0; cursor: nwse-resize; } .h-n { left: 50%; top: 0; cursor: ns-resize; } .h-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.h-e { left: 100%; top: 50%; cursor: ew-resize; } .h-se { left: 100%; top: 100%; cursor: nwse-resize; } .h-s { left: 50%; top: 100%; cursor: ns-resize; }
+.h-sw { left: 0; top: 100%; cursor: nesw-resize; } .h-w { left: 0; top: 50%; cursor: ew-resize; }
+.overlay-toolbar { position: absolute; left: 6px; bottom: 6px; right: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 6px; background: rgba(27, 31, 38, 0.92); border: 1px solid var(--border); border-radius: 6px; }
+.overlay-toolbar .primary { margin-left: auto; }
+.small { font-size: 11px; }
+.overlay-editor.side-left { right: auto; left: 6px; }
+.overlay-editor { position: absolute; top: 6px; right: 6px; max-width: calc(100% - 12px); max-height: calc(100% - 56px); overflow: auto; display: grid; gap: 6px; padding: 8px; background: rgba(27, 31, 38, 0.97); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
+.oe-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.oe-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.oe-lines th { text-align: left; font-weight: normal; color: var(--fg-dim); padding: 0 3px; }
+.oe-lines td { padding: 1px 3px; }
+.oe-lines input.bad, .overlay-editor input.bad { border-color: #ff6b6b; }
+.oe-lines button { padding: 0 6px; }
+.header-actions button.on { color: var(--accent); }
+.video-zoom { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; transform-origin: 0 0; }
+.video-zoom canvas, .video-zoom video { max-width: 100%; max-height: 100%; }
+.video-zoom-badge { position: absolute; right: 6px; top: 6px; z-index: 4; font-size: 11px; padding: 1px 6px; background: rgba(20, 23, 28, 0.8); border-radius: 3px; cursor: pointer; }
+.video-stage { overflow: hidden; }
+.video-stage.zoomed { cursor: grab; }
+.plot-wrap { flex: 1; min-height: 120px; position: relative; display: flex; flex-direction: column; }

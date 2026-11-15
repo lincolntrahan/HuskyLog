@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
+import { OverlayLayer } from '../../overlay/OverlayLayer';
+import type { OverlayItem } from '../../overlay/model';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { buildAligned } from '@core/series/decimate';
@@ -32,7 +34,7 @@ export interface ResolvedSeries {
 
 const AXIS = '#8a94a3', GRID = '#2a313b', PLAYHEAD = '#ffcc00';
 
-export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphCfg }>) {
+export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphCfg; overlays?: OverlayItem[] }>) {
   const [cfg, setCfgState] = useState<GraphCfg>(params?.graph ?? DEFAULT_GRAPH);
   const setCfg = useCallback((next: GraphCfg) => {
     setCfgState(next);
@@ -360,7 +362,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
         ))}
         {resolved.length === 0 && <span className="muted">No series. Click ＋ Add or pick a preset.</span>}
       </div>
-      <div className="plot-host" ref={hostRef} />
+      <div className="plot-wrap"><div className="plot-host" ref={hostRef} /><OverlayLayer api={api} initial={params?.overlays} /></div>
       {range && visible.length > 0 && <StatsTable series={visible} range={range} />}
       <div className="graph-status muted">
         {hoverT !== null ? `cursor ${fmtTime(hoverT)}` : `playhead ${fmtTime(playT)}`}

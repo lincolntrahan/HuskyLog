@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
+import { OverlayLayer } from '../overlay/OverlayLayer';
+import type { OverlayItem } from '../overlay/model';
 import { drawAdi, type AdiState } from '../adi/drawAdi';
 import { channelExists, loadChannel, primaryLog, useLogs, type LoadedChannel } from '../data/logs';
 import { useTimeline } from '../data/timeline';
@@ -10,7 +12,7 @@ const SPEED_OPTIONS = ['ARSP.Airspeed', 'CTUN.As', 'GPS.Spd'];
 const ALT_OPTIONS = ['POS.RelHomeAlt', 'BARO.Alt', 'POS.Alt', 'GPS.Alt'];
 
 /** Artificial horizon window (DESIGN §7.3). Sources are configurable. */
-export function AdiPanel({ api, params }: IDockviewPanelProps<{ adi?: AdiCfg }>) {
+export function AdiPanel({ api, params }: IDockviewPanelProps<{ adi?: AdiCfg; overlays?: OverlayItem[] }>) {
   const [cfg, setCfgState] = useState<AdiCfg>(params?.adi ?? { speed: 'ARSP.Airspeed', alt: 'POS.RelHomeAlt' });
   const setCfg = (c: AdiCfg) => { setCfgState(c); api.updateParameters({ adi: c }); };
   const [settings, setSettings] = useState(false);
@@ -64,6 +66,7 @@ export function AdiPanel({ api, params }: IDockviewPanelProps<{ adi?: AdiCfg }>)
   return (
     <div className="hl-panel adi-panel" ref={boxRef}>
       <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+      <OverlayLayer api={api} initial={params?.overlays} />
       {!log && <div className="placeholder">Load a .bin log on the Import tab.</div>}
       <button className="adi-gear" title="Choose airspeed and altitude sources" onClick={() => setSettings((s) => !s)}>⚙</button>
       {settings && (

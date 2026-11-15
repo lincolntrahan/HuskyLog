@@ -20,6 +20,8 @@ export interface AdiOptions {
   overlay?: boolean;
   /** Draw speed/altitude tapes and heading tape. */
   tapes?: boolean;
+  /** See-through HUD: horizon line, ladder and roll scale only, no sky/ground fill. */
+  hud?: boolean;
 }
 
 const SKY = '#2f6fb3', SKY2 = '#7fb3e6', GROUND = '#7a4f2a', GROUND2 = '#3d2714';
@@ -28,8 +30,9 @@ const FG = '#ffffff', AMBER = '#ffcc00', FONT = 'Segoe UI, system-ui, sans-serif
 export function drawAdi(ctx: CanvasRenderingContext2D, w: number, h: number, s: AdiState, o: AdiOptions = {}): void {
   const tapes = o.tapes ?? true;
   ctx.save();
-  ctx.clearRect(0, 0, w, h);
-  if (!o.overlay) { ctx.fillStyle = '#0d1014'; ctx.fillRect(0, 0, w, h); }
+  // Overlays draw on top of other content, so only the window clears.
+  if (!o.overlay) { ctx.clearRect(0, 0, w, h); ctx.fillStyle = '#0d1014'; ctx.fillRect(0, 0, w, h); }
+  const hud = !!o.hud;
 
   const tapeW = tapes ? Math.max(46, Math.min(80, w * 0.13)) : 0;
   const headH = tapes ? Math.max(24, Math.min(38, h * 0.09)) : 0;
@@ -50,16 +53,23 @@ export function drawAdi(ctx: CanvasRenderingContext2D, w: number, h: number, s: 
   ctx.rotate((-s.roll * Math.PI) / 180);
   const off = s.pitch * pxPerDeg;
   const big = Math.hypot(aw, ah) * 2;
-  let g = ctx.createLinearGradient(0, -big / 2 + off, 0, off);
-  g.addColorStop(0, SKY); g.addColorStop(1, SKY2);
-  ctx.fillStyle = g;
-  ctx.fillRect(-big, -big + off, big * 2, big);
-  g = ctx.createLinearGradient(0, off, 0, off + big / 2);
-  g.addColorStop(0, GROUND); g.addColorStop(1, GROUND2);
-  ctx.fillStyle = g;
-  ctx.fillRect(-big, off, big * 2, big);
-  ctx.strokeStyle = FG; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-big, off); ctx.lineTo(big, off); ctx.stroke();
+  if (hud) {
+    // Readable over any video: dark halo under white lines, gap in the middle.
+    ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3;
+    ctx.strokeStyle = FG; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-big, off); ctx.lineTo(-r * 0.5, off); ctx.moveTo(r * 0.5, off); ctx.lineTo(big, off); ctx.stroke();
+  } else {
+    let g = ctx.createLinearGradient(0, -big / 2 + off, 0, off);
+    g.addColorStop(0, SKY); g.addColorStop(1, SKY2);
+    ctx.fillStyle = g;
+    ctx.fillRect(-big, -big + off, big * 2, big);
+    g = ctx.createLinearGradient(0, off, 0, off + big / 2);
+    g.addColorStop(0, GROUND); g.addColorStop(1, GROUND2);
+    ctx.fillStyle = g;
+    ctx.fillRect(-big, off, big * 2, big);
+    ctx.strokeStyle = FG; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-big, off); ctx.lineTo(big, off); ctx.stroke();
+  }
 
   // Pitch ladder every 5°, labels every 10°.
   ctx.fillStyle = FG; ctx.lineWidth = 1.5;
@@ -80,6 +90,7 @@ export function drawAdi(ctx: CanvasRenderingContext2D, w: number, h: number, s: 
 
   // ---- Roll scale (fixed) and pointer (rotates) ----
   ctx.save();
+  if (hud) { ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 3; }
   ctx.translate(cx, cy);
   const rr = r * 0.92;
   ctx.strokeStyle = FG; ctx.lineWidth = 1.5;
