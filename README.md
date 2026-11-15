@@ -22,6 +22,7 @@ npm run build && npm run e2e          # Phase 0 spikes (pop-outs, Cesium, video)
 npm run e2e:phase1                     # logs, graphs, stats, CSV, presets (needs the reference log)
 npm run e2e:phase2                     # expressions (needs the reference log)
 npm run e2e:phase3                     # 3D map, map cache (downloads ~5 MB once), horizon
+npm run gen:syncvideo && npm run e2e:phase4   # video import + Sync tab (synthetic clip with known truth)
 ```
 
 `e2e` drives the built app with Playwright and writes screenshots to `.e2e/`.

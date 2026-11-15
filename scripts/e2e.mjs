@@ -88,39 +88,31 @@ try {
   if (pop) await pop.close();
   await sleep(1000);
 
-  // ---- Spike 3: WebCodecs frame stepping ----
+  // ---- Spike 3: WebCodecs frame stepping (now the app's MediaSource) ----
   const clips = ['h264_60fps_bframes.mp4', 'hevc_60fps.mp4', 'h264_vfr.mp4'];
   for (const clip of clips) {
     const p = join(root, 'test-data', 'generated', clip);
     const f = await main.evaluate((path) => window.huskylog.e2eRegister(path), p);
-    await main.evaluate((file) => {
-      // add through the store the same way the Import tab does
-      const ev = new CustomEvent('hl-e2e-add', { detail: file }); window.dispatchEvent(ev);
-    }, f);
-    await main.waitForFunction((name) => {
-      const v = window.__hl.videos['video-0'];
-      return v && (v.error || (v.codec && v.index === 0 && document.querySelector('select[aria-label="Video file"]')?.selectedOptions[0]?.text === name));
-    }, clip, { timeout: 20000 }).catch(() => {});
-    const v0 = await main.evaluate(() => ({ ...window.__hl.videos['video-0'] }));
+    await main.evaluate((file) => window.dispatchEvent(new CustomEvent('hl-e2e-add', { detail: file })), f);
     const k = clip.replace('.mp4', '');
-    log(`${k}: track`, { codec: v0.codec, supported: v0.supported, frames: v0.samples, keyframes: v0.keyframes, fps: v0.fps && +v0.fps.toFixed(3), error: v0.error ?? null });
-    if (!v0.supported) continue;
-    const go = async (i) => {
-      await main.evaluate((n) => window.__hl['video:video-0'].setIndex(n), i);
-      await main.waitForFunction((n) => window.__hl.videos['video-0'].index === n || window.__hl.videos['video-0'].error, i, { timeout: 15000 });
-      const err = await main.evaluate(() => window.__hl.videos['video-0'].error);
-      if (err) throw new Error('decode failed: ' + err);
-      return main.evaluate(() => ({ ...window.__hl.videos['video-0'] }));
-    };
-    const a = await go(300);  // mid-GOP random seek
-    const b = await go(301);  // forward step (cache)
-    const c = await go(299);  // backward step
-    const e = await go(v0.samples - 1); // last frame
-    log(`${k}: seek 300`, { ptsS: a.ptsUs / 1e6, ms: +a.lastStepMs.toFixed(1) });
-    log(`${k}: step +1 / -1`, { pts301: b.ptsUs / 1e6, ms301: +b.lastStepMs.toFixed(1), pts299: c.ptsUs / 1e6, ms299: +c.lastStepMs.toFixed(1) });
-    log(`${k}: last frame`, { index: e.index, ptsS: e.ptsUs / 1e6, ms: +e.lastStepMs.toFixed(1) });
-    await go(300);
-    await main.screenshot({ path: join(shots, `video_${k}_f300.png`) });
+    const id = await main.waitForFunction((name) => {
+      const m = window.__hl.media.getState();
+      const id = m.order.find((x) => m.videos[x].name === name);
+      return id && m.videos[id].status !== 'loading' ? id : null;
+    }, k, { timeout: 20000 }).then((h) => h.jsonValue());
+    const info = await main.evaluate((i) => window.__hl.media.getState().videos[i], id);
+    log(`${k}: track`, { codec: info.video?.codec, supported: info.video?.supported, frames: info.video?.frames, keyframes: info.video?.keyframes, fps: info.video && +info.video.fpsAvg.toFixed(3), error: info.error ?? null });
+    if (!info.video?.supported) continue;
+    const go = (i) => main.evaluate(async ([vid, n]) => {
+      const s = window.__hl.mediaSource(vid);
+      const t0 = performance.now();
+      await s.frame(n);
+      return { ptsS: s.ptsUs(n) / 1e6, ms: +(performance.now() - t0).toFixed(1) };
+    }, [id, i]);
+    log(`${k}: seek 300`, await go(300));
+    const b = await go(301), c = await go(299);
+    log(`${k}: step +1 / -1`, { pts301: b.ptsS, ms301: b.ms, pts299: c.ptsS, ms299: c.ms });
+    log(`${k}: last frame`, await go(info.video.frames - 1));
   }
 
   log('blocked network requests', await main.evaluate(() => window.huskylog.blockedRequests()));

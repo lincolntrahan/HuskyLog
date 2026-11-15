@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { useLogs } from './logs';
+import { useMedia } from './media';
+import { localToMaster, isSynced } from './sync';
 
 /**
  * Master timeline (DESIGN §6). Phase 1: master time = the first log's TimeUS
@@ -32,8 +34,13 @@ export function timeDomain(): [number, number] {
   let a = Infinity, b = -Infinity;
   for (const l of Object.values(useLogs.getState().logs)) {
     if (!l.summary) continue;
-    a = Math.min(a, l.summary.timeRange[0]);
-    b = Math.max(b, l.summary.timeRange[1]);
+    a = Math.min(a, localToMaster(l.id, l.summary.timeRange[0]));
+    b = Math.max(b, localToMaster(l.id, l.summary.timeRange[1]));
+  }
+  for (const v of Object.values(useMedia.getState().videos)) {
+    if (!v.video || !isSynced(v.id)) continue;
+    a = Math.min(a, localToMaster(v.id, v.video.startS));
+    b = Math.max(b, localToMaster(v.id, v.video.endS));
   }
   return Number.isFinite(a) ? [a, b] : [0, 1];
 }

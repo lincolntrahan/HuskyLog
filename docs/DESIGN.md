@@ -851,3 +851,60 @@ The aircraft orientation was checked against ATT: at 380 s, −43.9° roll
 - Fence display (no fence in the reference log to test against).
 - Imagery sharper than zoom 16 needs a provider other than USGS.
 - Map attribution uses Cesium's credit display, which includes the Cesium logo.
+
+## Appendix E. Phase 4 Results (2026-11-15)
+
+**Delivered:**
+- **Video import:** MP4/MOV read in place through range requests. The
+  container index is parsed even when `moov` sits after a multi-GB `mdat`
+  (only the index is read). Frames are decoded on demand with WebCodecs, one
+  GOP per read, with edit lists, open GOPs, rotation and VFR handled. Audio
+  (AAC) is decoded once into a min/max/RMS waveform.
+- **Time-sync solver** (`src/core/timesync`): offset, plus drift when markers
+  span ≥ 60 s; chaining through other streams; refinement passes; per-marker
+  residuals; drift warning; offset-only option; nudges (±1 frame, ±1 ms).
+- **Sync tab:**
+  - one lane per stream: log lanes plot throttle, ESC RPM and IMU accel
+    magnitude by default (editable, any expression); video lanes show the
+    audio waveform;
+  - Local mode (each lane scrubs in its own time) and Aligned mode (master
+    time, ticks labelled in master time);
+  - named events, markers placed with M and dragged by their head;
+    frame/sample stepping;
+  - snap to edge (RPM half-rise, audio onset), accepted with Enter;
+  - a warning when "prop start" is placed on the throttle *command*;
+  - video preview, and a results table with offset, drift and residuals.
+- **Video window:**
+  - follows the master playhead through the mapping;
+  - shows the exact frame when paused;
+  - uses the native player when playing, at speed ÷ a, re-locked beyond one
+    frame;
+  - shows "starts in…" and "not synced" states.
+- **Mapping elsewhere:** graphs plot a second log's channels in master time,
+  and the timeline domain includes synced videos.
+
+**Verified:** 9 new unit tests (57 total). `scripts/e2e-phase4.mjs` (14
+checks) uses a synthetic ground-camera clip with known truth (camera started at
+log 297.5 s, clock +300 ppm; flash plus audio at log 314.20 s and 400.00 s):
+- audio snap finds both events within 7 ms;
+- the solver recovers 289 ppm and 297.507 s;
+- the mapping error at both events is 7.1 ms and 6.1 ms, under a frame;
+- in Review, the frame two frames before each event is dark and the frame one
+  frame after is the flash;
+- playback stays within 13–42 ms;
+- opening the clip reads 1.17 of 2.60 MB.
+
+**Design changes:**
+- **No ffmpeg in Phase 4.** Probing, waveform and frame-accurate decode use
+  mp4box.js and WebCodecs. Proxies for codecs a machine can't decode are
+  deferred to Phase 7, which needs an encoder anyway; until then the Import
+  tab says when a codec isn't decodable. Phase 7 should first evaluate
+  WebCodecs `VideoEncoder` with an MP4 muxer before adding an ffmpeg binary.
+- Video lanes show the audio waveform and a frame preview, not a thumbnail
+  strip.
+
+**Deferred:**
+- Auto-suggest offsets from file timestamps (Phase 8, together with tlog↔bin).
+- Sync state is in memory until the workspace file (Phase 6).
+- Digital zoom/crop in the Video window (Phase 5, with overlays).
+- Matroska/WebM import.
