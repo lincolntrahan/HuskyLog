@@ -7,6 +7,8 @@ import { allStreams, useSync } from '../data/sync';
 import { useExpressions, loadExpression } from '../data/expressions';
 import { fmtTime } from '../data/timeline';
 import { Lane, type LaneSignal } from '../sync/Lane';
+import { SourceMenu } from '../ui/SourceMenu';
+import { useApp } from '../store';
 import type { Waveform } from '../video/MediaSource';
 
 const SIG_COLORS = ['#ffb000', '#3ddc97', '#c792ea', '#7fdbff'];
@@ -108,25 +110,118 @@ export function SyncTab() {
   const cursor = selected ? cursors[selected] ?? null : null;
   const setCursor = (id: string, t: number) => { setCursors((c) => ({ ...c, [id]: t })); setSuggest((s) => ({ ...s, [id]: null })); };
 
-  // Video preview of the selected video lane at its cursor.
+  // ---- playback (find the moment by playing and scrubbing) ----
+  const [playing, setPlaying] = useState(false);
+  const [rate, setRate] = useState(1);
+  const [sound, setSound] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+
   useEffect(() => {
-    if (!sel || sel.kind !== 'video' || cursor === null) return;
+    if (!playing || !sel) return;
+    const id = sel.id;
+    const [r0, r1] = rangeOf(id);
+    const start = cursorRef.current ?? r0;
+    const video = videoRef.current;
+    let raf = 0, last = performance.now(), lastSet = 0, stopped = false;
+    let t = start >= r1 - 1e-3 ? r0 : start;
+    const win = (previewRef.current?.ownerDocument.defaultView ?? window);
+    if (sel.kind === 'video' && video) {
+      const v = media.videos[id]!;
+      if (video.getAttribute('src') !== v.url) video.src = v.url;
+      video.muted = !sound;
+      video.playbackRate = rate;
+      video.currentTime = t;
+      void video.play().catch(() => setPlaying(false));
+      video.onended = () => setPlaying(false);
+    }
+    const tick = (now: number) => {
+      if (stopped) return;
+      if (sel.kind === 'video' && video) t = video.currentTime;
+      else { t += ((now - last) / 1000) * rate; if (t >= r1) { t = r1; setPlaying(false); } }
+      last = now;
+      if (now - lastSet > 33) { lastSet = now; setCursor(id, t); follow(id, t); }
+      raf = win.requestAnimationFrame(tick);
+    };
+    raf = win.requestAnimationFrame(tick);
+    return () => {
+      stopped = true;
+      win.cancelAnimationFrame(raf);
+      if (video) { video.pause(); video.onended = null; if (sel.kind === 'video') setCursor(id, video.currentTime); }
+      else setCursor(id, t);
+    };
+  }, [playing, sel?.id, rate]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (videoRef.current) videoRef.current.muted = !sound; }, [sound]);
+  useEffect(() => { setPlaying(false); }, [sel?.id]);
+
+  /** Keeps the cursor in view while playing (pans the lane). */
+  const follow = (id: string, t: number) => {
+    if (mode === 'aligned') return;
+    setViews((x) => {
+      const v = x[id] ?? rangeOf(id);
+      const span = v[1] - v[0];
+      if (t > v[0] + span * 0.92 || t < v[0]) return { ...x, [id]: [t - span * 0.1, t + span * 0.9] };
+      return x;
+    });
+  };
+
+  // Video preview of the selected video lane at its cursor. Only the latest
+  // requested frame is decoded, so scrubbing never queues up stale frames.
+  const wantRef = useRef<{ id: string; i: number } | null>(null);
+  const busyRef = useRef(false);
+  const drawPreview = async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    try {
+      for (;;) {
+        const w = wantRef.current;
+        const c = previewRef.current;
+        const src = w ? mediaSource(w.id) : undefined;
+        if (!w || !c || !src) break;
+        const bmp = await src.frame(w.i).catch(() => null);
+        if (bmp && wantRef.current === w) {
+          const rot = src.video!.rotation;
+          const sw = rot % 180 ? bmp.height : bmp.width, sh = rot % 180 ? bmp.width : bmp.height;
+          if (c.width !== sw || c.height !== sh) { c.width = sw; c.height = sh; }
+          const ctx = c.getContext('2d')!;
+          ctx.save(); ctx.translate(sw / 2, sh / 2); ctx.rotate((rot * Math.PI) / 180);
+          ctx.drawImage(bmp, -bmp.width / 2, -bmp.height / 2); ctx.restore();
+          (window.__hl as Record<string, unknown>)['syncPreview'] = { index: w.i, id: w.id };
+          if (wantRef.current === w) break;
+        }
+        if (!bmp) break;
+      }
+    } finally { busyRef.current = false; }
+  };
+  useEffect(() => {
+    if (!sel || sel.kind !== 'video' || cursor === null || playing) return;
     const src = mediaSource(sel.id);
-    const c = previewRef.current;
-    if (!src || !c) return;
-    let cancelled = false;
-    const i = src.indexAt(cursor);
-    void src.frame(i).then((bmp) => {
-      if (cancelled) return;
-      const rot = src.video!.rotation;
-      const sw = rot % 180 ? bmp.height : bmp.width, sh = rot % 180 ? bmp.width : bmp.height;
-      c.width = sw; c.height = sh;
-      const ctx = c.getContext('2d')!;
-      ctx.save(); ctx.translate(sw / 2, sh / 2); ctx.rotate((rot * Math.PI) / 180);
-      ctx.drawImage(bmp, -bmp.width / 2, -bmp.height / 2); ctx.restore();
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [sel?.id, cursor]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!src) return;
+    wantRef.current = { id: sel.id, i: src.indexAt(cursor) };
+    void drawPreview();
+  }, [sel?.id, cursor, playing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Drag on the preview to jog (1 px = 1 frame, Shift ×10); wheel = ±1 frame. */
+  const onPreviewDown = (e: React.MouseEvent) => {
+    if (!sel || sel.kind !== 'video') return;
+    const src = mediaSource(sel.id);
+    if (!src) return;
+    e.preventDefault();
+    setPlaying(false);
+    const host = e.currentTarget.ownerDocument.defaultView ?? window;
+    const startX = e.clientX;
+    const i0 = src.indexAt(cursorRef.current ?? src.ptsUs(0) / 1e6);
+    const move = (ev: MouseEvent) => {
+      const di = Math.round((ev.clientX - startX) * (ev.shiftKey ? 10 : 1));
+      const i = Math.max(0, Math.min(src.frameCount - 1, i0 + di));
+      setCursor(sel.id, src.ptsUs(i) / 1e6);
+    };
+    const up = () => { host.removeEventListener('mousemove', move); host.removeEventListener('mouseup', up); };
+    host.addEventListener('mousemove', move);
+    host.addEventListener('mouseup', up);
+  };
+  const onPreviewWheel = (e: React.WheelEvent) => { setPlaying(false); step(e.deltaY > 0 ? 1 : -1); };
 
   // ---- actions ----
   const step = (dir: number, big = false) => {
@@ -174,17 +269,28 @@ export function SyncTab() {
     setNewEvent('');
   };
 
-  const onKey = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
-    if (e.key === 'ArrowRight') { step(1, e.shiftKey); e.preventDefault(); }
-    if (e.key === 'ArrowLeft') { step(-1, e.shiftKey); e.preventDefault(); }
+  // Keys work anywhere on the Sync tab (no need to click into it first).
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  keyRef.current = (e: KeyboardEvent) => {
+    const tag = (e.target as HTMLElement | null)?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.code === 'Space') { e.preventDefault(); if (cursor === null && sel) setCursor(sel.id, rangeOf(sel.id)[0]); setPlaying((p) => !p); return; }
+    if (e.key === 'ArrowRight') { setPlaying(false); step(1, e.shiftKey); e.preventDefault(); }
+    if (e.key === 'ArrowLeft') { setPlaying(false); step(-1, e.shiftKey); e.preventDefault(); }
     if (e.key === 'm' || e.key === 'M') place();
     if (e.key === 's' || e.key === 'S') snap();
     if (e.key === 'Enter') acceptSnap();
     if (e.key === 'Delete' && sel && activeEvent) sync.removeMarker(sel.id, activeEvent);
   };
+  const appTab = useApp((s) => s.tab);
+  useEffect(() => {
+    if (appTab !== 'sync') { setPlaying(false); return; }
+    const h = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [appTab]);
 
-  (window.__hl as Record<string, unknown>)['sync'] = { setCursor, setSelected, place, snap, acceptSnap, setActiveEvent, step, getSuggest: () => suggest, getCursors: () => cursors };
+  (window.__hl as Record<string, unknown>)['sync'] = { setCursor, setSelected, place, snap, acceptSnap, setActiveEvent, step, getSuggest: () => suggest, getCursors: () => cursors, setPlaying, isPlaying: () => playing, setRate, setSound };
 
   const activeName = sync.events.find((e) => e.id === activeEvent)?.name ?? '';
   const selChannels = sel?.kind === 'log' ? laneChannels[sel.id] ?? [] : [];
@@ -197,7 +303,7 @@ export function SyncTab() {
   }
 
   return (
-    <div className="sync" tabIndex={0} onKeyDown={onKey}>
+    <div className="sync">
       <div className="sync-bar">
         <div className="seg">
           <button className={mode === 'local' ? 'primary' : ''} onClick={() => setMode('local')} title="Each lane scrubs in its own time">Local</button>
@@ -211,7 +317,7 @@ export function SyncTab() {
         ))}
         <input value={newEvent} onChange={(e) => setNewEvent(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addEvent()} placeholder="New event (e.g. Prop start)" aria-label="New event name" style={{ width: 190 }} />
         <button onClick={addEvent} disabled={!newEvent.trim()}>Add event</button>
-        <span className="sync-hint muted">click: cursor · ←/→ frame/sample · S snap · Enter accept · M place marker · wheel zoom · Alt-drag pan</span>
+        <span className="sync-hint muted">drag: scrub · Space play/pause · ←/→ frame/sample · S snap · Enter accept · M place marker · wheel zoom · Alt-drag pan</span>
       </div>
 
       <div className="lanes">
@@ -254,6 +360,7 @@ export function SyncTab() {
                   fromDisplay={mode === 'aligned' && s && status !== 'unsynced' ? (t) => toLocal(s, t) : undefined}
                   onSelect={() => setSelected(st.id)}
                   onCursor={(t) => setCursor(st.id, t)}
+                  onScrub={(on) => { if (on) { setPlaying(false); setSelected(st.id); } }}
                   onMarkerDrag={(ev, t) => sync.setMarker(st.id, ev, t)}
                   onView={(nv) => {
                     if (mode === 'aligned') {
@@ -274,10 +381,15 @@ export function SyncTab() {
             <>
               <div className="row">
                 <b>{sel.name}</b>
-                <span className="mono">{cursor === null ? 'click a lane to set the cursor' : `cursor ${fmtTime(cursor)}`}</span>
+                <span className="mono">{cursor === null ? 'click or drag in a lane to set the cursor' : `cursor ${fmtTime(cursor)}`}</span>
                 {cursor !== null && sync.solution.streams[sel.id]?.status !== 'unsynced' && <span className="mono muted">= master {fmtTime(toMaster(sync.solution.streams[sel.id]!, cursor))}</span>}
               </div>
               <div className="row">
+                <button className={playing ? 'primary' : ''} onClick={() => { if (cursor === null) setCursor(sel.id, rangeOf(sel.id)[0]); setPlaying((p) => !p); }} title="Play / pause (Space)" aria-label={playing ? 'Pause' : 'Play'} style={{ width: 40 }}>{playing ? '❚❚' : '▶'}</button>
+                <select value={rate} onChange={(e) => setRate(Number(e.target.value))} aria-label="Sync playback speed" title="Playback speed">
+                  {[0.1, 0.25, 0.5, 1, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
+                </select>
+                {sel.kind === 'video' && <label className="chk"><input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} /> Sound</label>}
                 <button onClick={() => step(-1, true)} disabled={cursor === null}>−1 s</button>
                 <button onClick={() => step(-1)} disabled={cursor === null}>◀ {sel.kind === 'video' ? 'frame' : 'sample'}</button>
                 <button onClick={() => step(1)} disabled={cursor === null}>{sel.kind === 'video' ? 'frame' : 'sample'} ▶</button>
@@ -296,7 +408,8 @@ export function SyncTab() {
                 )}
                 {sel.kind === 'log' && (
                   <span className="row">
-                    <input value={addChan} onChange={(e) => setAddChan(e.target.value)} placeholder="add channel or expression" aria-label="Add lane channel" style={{ width: 170 }}
+                    <SourceMenu stream={sel.id} specials={false} placeholder="＋ channel…" ariaLabel="Pick a lane channel" onPick={(p) => setLaneChannels((x) => ({ ...x, [sel.id]: [...(x[sel.id] ?? []).filter((c) => c !== p.source), p.source] }))} />
+                    <input value={addChan} onChange={(e) => setAddChan(e.target.value)} placeholder="or type an expression" aria-label="Add lane channel" style={{ width: 160 }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && addChan.trim()) { setLaneChannels((x) => ({ ...x, [sel.id]: [...(x[sel.id] ?? []), addChan.trim()] })); setAddChan(''); } }} />
                   </span>
                 )}
@@ -312,7 +425,10 @@ export function SyncTab() {
         </div>
         {sel?.kind === 'video' && (
           <div className="sync-preview">
-            <canvas ref={previewRef} />
+            <div className="sync-preview-stage" onMouseDown={onPreviewDown} onWheel={onPreviewWheel} title="Drag sideways to jog frame by frame (Shift: ×10) · wheel: ±1 frame">
+              <canvas ref={previewRef} style={{ display: playing ? 'none' : 'block' }} />
+              <video ref={videoRef} playsInline preload="auto" style={{ display: playing ? 'block' : 'none', transform: media.videos[sel.id]?.video?.rotation ? `rotate(${media.videos[sel.id]!.video!.rotation}deg)` : undefined }} />
+            </div>
             {cursor !== null && mediaSource(sel.id) && <div className="mono small">frame {mediaSource(sel.id)!.indexAt(cursor)} · {fmtTime(cursor)}</div>}
           </div>
         )}

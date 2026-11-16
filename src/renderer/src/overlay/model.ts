@@ -13,6 +13,8 @@ export interface ReadoutLine {
    *  source: @mode, @armed, @time (master), @local (stream time). */
   source: string;
   format: string;    // printf style, e.g. "%.1f"
+  /** False once the user typed a label; picking a source then keeps it. */
+  labelAuto?: boolean;
   unit?: string;
 }
 export interface OverlayStyle {

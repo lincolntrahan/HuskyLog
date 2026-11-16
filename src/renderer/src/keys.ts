@@ -16,6 +16,8 @@ export function handleGlobalKey(e: KeyboardEvent, inPopout: boolean): void {
   const el = e.target as HTMLElement | null;
   const tag = el?.tagName;
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+  // The Sync tab handles its own keys (Space plays the selected lane there).
+  if (!inPopout && useApp.getState().tab === 'sync') return;
   const tl = useTimeline.getState();
   if (e.code === 'Space') { e.preventDefault(); tl.setPlaying(!tl.playing); return; }
   // The Sync tab has its own arrow keys; these apply to Review (and pop-outs).

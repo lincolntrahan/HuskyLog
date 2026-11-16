@@ -1,3 +1,4 @@
+import { G_EXPR } from '../../ui/quickPicks';
 /** Graph window configuration (saved in the panel params / workspace / presets). */
 
 export interface SeriesCfg {
@@ -42,6 +43,12 @@ export const BUILTIN_PRESETS: GraphPreset[] = [
   { format: 'huskylog-graph-preset', version: 1, name: 'Attitude tracking', series: [{ id: 'ATT.Roll' }, { id: 'ATT.DesRoll' }, { id: 'ATT.Pitch' }, { id: 'ATT.DesPitch' }] },
   { format: 'huskylog-graph-preset', version: 1, name: 'Rate controllers', series: [{ id: 'PIDR.Tar' }, { id: 'PIDR.Act' }, { id: 'PIDP.Tar' }, { id: 'PIDP.Act' }] },
   { format: 'huskylog-graph-preset', version: 1, name: 'Vibration', series: [{ id: 'VIBE.VibeX' }, { id: 'VIBE.VibeY' }, { id: 'VIBE.VibeZ' }, { id: 'VIBE.Clip', axis: 'right' }] },
+  {
+    // Total acceleration in g: the Pythagorean sum of the three accelerometer axes.
+    format: 'huskylog-graph-preset', version: 1, name: 'G (total acceleration)',
+    named: { G: G_EXPR },
+    series: [{ id: 'G', kind: 'expr', name: 'G', unit: 'g' }],
+  },
   { format: 'huskylog-graph-preset', version: 1, name: 'Battery & power', series: [{ id: 'BAT.Volt' }, { id: 'BAT.Curr' }] },
   { format: 'huskylog-graph-preset', version: 1, name: 'Airspeed', series: [{ id: 'ARSP.Airspeed' }, { id: 'GPS.Spd' }, { id: 'CTUN.As' }] },
   { format: 'huskylog-graph-preset', version: 1, name: 'Altitude', series: [{ id: 'BARO.Alt' }, { id: 'POS.RelHomeAlt' }, { id: 'GPS.Alt' }] },
