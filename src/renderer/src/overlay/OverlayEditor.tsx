@@ -1,26 +1,18 @@
-import { useMemo } from 'react';
+import { SourceMenu } from '../ui/SourceMenu';
 import { isValidFormat } from '@core/overlay/format';
 import { useLogs } from '../data/logs';
-import { useExpressions } from '../data/expressions';
 import { useOverlays, type OverlayItem, type ReadoutLine } from './model';
 import { lineValue, streamOf } from './values';
 import { useTimeline } from '../data/timeline';
 
-const SPECIALS = ['@mode', '@armed', '@time', '@local'];
 
 /** Properties of the selected overlay (edit mode). */
 /** `side`: which side of the window the panel sits on (away from the selected overlay). */
 export function OverlayEditor({ win, item, side }: { win: string; item: OverlayItem; side: 'left' | 'right' }) {
   const patch = (p: Partial<OverlayItem>) => useOverlays.getState().patch(win, item.id, p);
   const logs = useLogs();
-  const named = useExpressions((s) => s.named);
   const t = useTimeline((s) => s.t);
   const stream = streamOf(item);
-  const listId = `ovsrc-${win}`;
-  const options = useMemo(() => {
-    const ch = stream ? logs.logs[stream]?.summary?.channels.map((c) => c.id) ?? [] : [];
-    return [...SPECIALS, ...Object.keys(named), ...ch];
-  }, [stream, logs.logs, named]);
   const lines = item.lines ?? [];
   const setLine = (i: number, p: Partial<ReadoutLine>) => patch({ lines: lines.map((l, k) => (k === i ? { ...l, ...p } : l)) });
   const ready = logs.order.filter((id) => logs.logs[id]?.status === 'ready');
@@ -38,7 +30,6 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
       )}
       {item.kind === 'readout' && (
         <>
-          <datalist id={listId}>{options.map((o) => <option key={o} value={o} />)}</datalist>
           <table className="oe-lines">
             <thead><tr><th>Label</th><th title="A channel (ATT.Roll), a named or inline expression, or @mode, @armed, @time, @local">Source</th><th>Format</th><th>Unit</th><th>Now</th><th /></tr></thead>
             <tbody>
@@ -47,9 +38,21 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
                 const badFmt = l.format && !isValidFormat(l.format);
                 return (
                   <tr key={i}>
-                    <td><input value={l.label} onChange={(e) => setLine(i, { label: e.target.value })} aria-label={`Label ${i + 1}`} style={{ width: 56 }} /></td>
-                    <td><input value={l.source} list={listId} onChange={(e) => setLine(i, { source: e.target.value })} aria-label={`Source ${i + 1}`} style={{ width: 150 }}
-                      className={v.error ? 'bad' : ''} title={v.error ?? ''} /></td>
+                    <td><input value={l.label} onChange={(e) => setLine(i, { label: e.target.value, labelAuto: false })} aria-label={`Label ${i + 1}`} style={{ width: 56 }} /></td>
+                    <td>
+                      <span className="src-cell">
+                        <input value={l.source} onChange={(e) => setLine(i, { source: e.target.value })} aria-label={`Source ${i + 1}`} style={{ width: 122 }}
+                          className={v.error ? 'bad' : ''} title={v.error ?? 'Type a channel or expression, or pick one with ▾'} />
+                        <SourceMenu stream={stream} value={l.source} compact ariaLabel={`Pick source ${i + 1}`}
+                          onPick={(p) => setLine(i, {
+                            source: p.source,
+                            // Fill label/unit/format from the pick unless the user already typed their own label.
+                            label: l.labelAuto === false && l.label ? l.label : p.label,
+                            unit: p.unit ?? '',
+                            format: p.format ?? (l.format || '%.1f'),
+                          })} />
+                      </span>
+                    </td>
                     <td><input value={l.format} onChange={(e) => setLine(i, { format: e.target.value })} aria-label={`Format ${i + 1}`} style={{ width: 50 }}
                       className={badFmt ? 'bad' : ''} title="printf style: %.1f, %d, %+.2f, %,d, %.3e" /></td>
                     <td><input value={l.unit ?? ''} onChange={(e) => setLine(i, { unit: e.target.value })} aria-label={`Unit ${i + 1}`} style={{ width: 38 }} /></td>
@@ -85,3 +88,4 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
     </div>
   );
 }
+

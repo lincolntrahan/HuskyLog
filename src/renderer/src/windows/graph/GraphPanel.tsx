@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../../overlay/OverlayLayer';
 import { registerExportSource } from '../../export/registry';
+import { SourceMenu, type PickedSource } from '../../ui/SourceMenu';
 import type { OverlayItem } from '../../overlay/model';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -334,6 +335,14 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
     if (stream !== primary?.id) s.stream = stream;
     setCfg({ ...cfg, series: [...cfg.series, s] });
   };
+  /** A pick from the cascading menu: a channel, a named expression, or a preset expression. */
+  const addPicked = (p: PickedSource) => {
+    if (!primary) return;
+    if (channelExists({ stream: primary.id, id: p.source })) return addRef({ stream: primary.id, id: p.source });
+    if (p.source in named) return addNamedRef(p.source, primary.id);
+    if (cfg.series.some((x) => x.kind === 'expr' && x.id === p.source)) return;
+    setCfg({ ...cfg, series: [...cfg.series, { id: p.source, kind: 'expr', name: p.label, unit: p.unit, color: nextColor(cfg.series.map((x) => x.color)), axis: 'auto', visible: true }] });
+  };
   const saveExpr = (d: ExprDraft) => {
     const idx = exprEdit?.index ?? null;
     let id = d.src;
@@ -366,7 +375,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   return (
     <div className="hl-panel graph" tabIndex={0} onKeyDown={onKey}>
       <div className="graph-bar">
-        <button onClick={() => setPicker((p) => !p)} title="Add a channel (search)">＋ Add</button>
+        <span className="src-cell"><button onClick={() => setPicker((p) => !p)} title="Add a channel (search)">＋ Add</button><SourceMenu stream={primary?.id} specials={false} compact ariaLabel="Browse channels" onPick={addPicked} /></span>
         <button onClick={() => setExprEdit({ index: null })} disabled={!primary} title="Add a math expression, e.g. ATT.Roll - ATT.DesRoll">ƒx Expression</button>
         <PresetMenu cfg={cfg} onApply={(c) => { setErrors({}); setCfg(c); }} />
         <button onClick={() => setXRange(null)} disabled={!xRange} title="Show the whole log (double-click the plot)">Fit</button>

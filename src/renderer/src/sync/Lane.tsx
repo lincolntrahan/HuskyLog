@@ -20,6 +20,8 @@ export interface LaneProps {
   toDisplay?: (t: number) => number;
   fromDisplay?: (t: number) => number;
   onCursor: (t: number) => void;
+  /** Scrubbing started (true) / ended (false), e.g. to pause playback. */
+  onScrub?: (active: boolean) => void;
   onMarkerDrag: (eventId: string, t: number) => void;
   onView: (v: [number, number]) => void;
   onSelect: () => void;
@@ -130,34 +132,36 @@ export function Lane(p: LaneProps) {
     }
   });
 
-  // Interaction: click = cursor, drag marker head, wheel = zoom, Alt/middle drag = pan.
+  // Interaction: press/drag = scrub the cursor, drag a marker head = move it, wheel = zoom, Alt/middle drag = pan.
   useEffect(() => {
     const c = ref.current!;
     const tOf = (x: number) => { const [a, b] = props.current.view; return a + (x / c.clientWidth) * (b - a); };
-    let mode: null | { kind: 'marker'; eventId: string } | { kind: 'pan'; x: number; view: [number, number] } | { kind: 'click'; x: number } = null;
+    let mode: null | { kind: 'marker'; eventId: string } | { kind: 'pan'; x: number; view: [number, number] } | { kind: 'scrub' } = null;
     const onDown = (e: MouseEvent) => {
       props.current.onSelect();
       const x = e.offsetX;
       if (e.button === 1 || e.altKey) { mode = { kind: 'pan', x: e.clientX, view: props.current.view }; e.preventDefault(); return; }
       const [a, b] = props.current.view;
       const near = props.current.markers.find((m) => Math.abs(((m.t - a) / (b - a)) * c.clientWidth - x) < 6);
-      mode = near && e.offsetY < 26 ? { kind: 'marker', eventId: near.eventId } : { kind: 'click', x: e.clientX };
+      if (near && e.offsetY < 26) { mode = { kind: 'marker', eventId: near.eventId }; return; }
+      mode = { kind: 'scrub' };
+      props.current.onScrub?.(true);
+      props.current.onCursor(tOf(x));
+      e.preventDefault();
     };
     const onMove = (e: MouseEvent) => {
       if (!mode) return;
       const r = c.getBoundingClientRect();
       if (mode.kind === 'marker') props.current.onMarkerDrag(mode.eventId, tOf(e.clientX - r.left));
+      if (mode.kind === 'scrub') props.current.onCursor(tOf(Math.max(0, Math.min(c.clientWidth, e.clientX - r.left))));
       if (mode.kind === 'pan') {
         const [a, b] = mode.view;
         const dt = ((e.clientX - mode.x) / c.clientWidth) * (b - a);
         props.current.onView([a - dt, b - dt]);
       }
     };
-    const onUp = (e: MouseEvent) => {
-      if (mode?.kind === 'click' && Math.abs(e.clientX - mode.x) < 3) {
-        const r = c.getBoundingClientRect();
-        props.current.onCursor(tOf(e.clientX - r.left));
-      }
+    const onUp = () => {
+      if (mode?.kind === 'scrub') props.current.onScrub?.(false);
       mode = null;
     };
     const onWheel = (e: WheelEvent) => {
