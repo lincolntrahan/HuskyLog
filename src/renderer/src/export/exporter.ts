@@ -6,7 +6,8 @@ import { useTimeline } from '../data/timeline';
 import { drawOverlays } from '../overlay/draw';
 import { useOverlays } from '../overlay/model';
 import { H264Sink } from '../video/h264';
-import { exportSource, isShown } from './registry';
+import { exportSource, isShown, setExporting } from './registry';
+import { startExportReaders, stopExportReaders } from './videoDraw';
 
 /**
  * Export (DESIGN §10): a deterministic offline render, not screen capture.
@@ -93,8 +94,11 @@ export function computeLayout(o: Pick<ExportOptions, 'windows' | 'layout'>, W: n
   return gridLayout(ids, W, H, Math.round(Math.min(W, H) * 0.006));
 }
 
+/** Where export time went (ms, summed over frames): for diagnosing slow exports. */
+export interface ExportTiming { render: number; encode: number; draw: Record<string, number> }
+
 /** Renders one composite frame at master time t. */
-export async function renderComposite(ctx: Ctx, placements: Placement[], t: number, W: number, H: number): Promise<void> {
+export async function renderComposite(ctx: Ctx, placements: Placement[], t: number, W: number, H: number, timing?: ExportTiming): Promise<void> {
   ctx.fillStyle = BG; ctx.fillRect(0, 0, W, H);
   for (const p of placements) {
     const src = exportSource(p.id);
@@ -102,7 +106,9 @@ export async function renderComposite(ctx: Ctx, placements: Placement[], t: numb
     ctx.save();
     ctx.beginPath(); ctx.rect(p.x, p.y, p.w, p.h); ctx.clip();
     ctx.translate(p.x, p.y);
+    const d0 = performance.now();
     await src.draw(ctx, t, p.w, p.h);
+    if (timing) timing.draw[p.id] = (timing.draw[p.id] ?? 0) + performance.now() - d0;
     const items = useOverlays.getState().byWindow[p.id] ?? [];
     if (items.length) drawOverlays(ctx as unknown as CanvasRenderingContext2D, p.w, p.h, items, t);
     ctx.restore();
@@ -112,7 +118,7 @@ export async function renderComposite(ctx: Ctx, placements: Placement[], t: numb
 export interface ExportProgress { frame: number; frames: number; phase: 'render' | 'palette' | 'write'; etaS: number | null }
 
 /** Renders and encodes the export; writes `out`. */
-export async function runExport(o: ExportOptions, out: string, onProgress: (p: ExportProgress) => void, signal: { cancelled: boolean }): Promise<{ path: string; bytes: number; frames: number; encoder?: string }> {
+export async function runExport(o: ExportOptions, out: string, onProgress: (p: ExportProgress) => void, signal: { cancelled: boolean }): Promise<{ path: string; bytes: number; frames: number; encoder?: string; timing: ExportTiming }> {
   if (o.format === 'gif' && o.t1 - o.t0 > GIF_MAX_SECONDS + 1e-6) throw new Error(`GIF export is limited to ${GIF_MAX_SECONDS} s.`);
   const W = o.width & ~1, H = o.height & ~1;
   const frames = Math.max(1, Math.round((o.t1 - o.t0) * o.fps));
@@ -123,7 +129,10 @@ export async function runExport(o: ExportOptions, out: string, onProgress: (p: E
   const tl = useTimeline.getState();
   const saved = { t: tl.t, playing: tl.playing };
   tl.setPlaying(false);
+  setExporting(true);
+  startExportReaders(placements.map((p) => exportSource(p.id)?.videoStream?.()).filter((s): s is string => !!s), o.t0, o.t1);
   const started = performance.now();
+  const timing: ExportTiming = { render: 0, encode: 0, draw: {} };
   const eta = (i: number) => (i > 2 ? ((performance.now() - started) / 1000 / i) * (frames - i) : null);
   try {
     if (o.format === 'mp4') {
@@ -133,11 +142,14 @@ export async function runExport(o: ExportOptions, out: string, onProgress: (p: E
       for (let i = 0; i < frames; i++) {
         if (signal.cancelled) throw new Error('Export cancelled');
         const t = o.t0 + i / o.fps;
+        const r0 = performance.now();
         useTimeline.getState().setT(t);
-        await renderComposite(ctx, placements, t, W, H);
+        await renderComposite(ctx, placements, t, W, H, timing);
+        const r1 = performance.now();
         const f = new VideoFrame(canvas, { timestamp: Math.round((i * 1e6) / o.fps), duration: Math.round(1e6 / o.fps) });
         await sink.add(f, i % keyEvery === 0);
         f.close();
+        timing.render += r1 - r0; timing.encode += performance.now() - r1;
         onProgress({ frame: i + 1, frames, phase: 'render', etaS: eta(i + 1) });
       }
       const video = await sink.finish();
@@ -157,7 +169,7 @@ export async function runExport(o: ExportOptions, out: string, onProgress: (p: E
       onProgress({ frame: frames, frames, phase: 'write', etaS: 0 });
       const mp4 = buildMp4(tracks);
       const bytes = await window.huskylog.exportWriteMp4(out, { src: srcPath, enc: temp, head: mp4.head, moov: mp4.moov, runs });
-      return { path: out, bytes, frames, encoder: sink.mode };
+      return { path: out, bytes, frames, encoder: sink.mode, timing };
     }
     // GIF: render all frames, then one palette for the whole clip, then encode.
     const rgba: Uint8ClampedArray[] = [];
@@ -165,7 +177,9 @@ export async function runExport(o: ExportOptions, out: string, onProgress: (p: E
       if (signal.cancelled) throw new Error('Export cancelled');
       const t = o.t0 + i / o.fps;
       useTimeline.getState().setT(t);
-      await renderComposite(ctx, placements, t, W, H);
+      const r0 = performance.now();
+      await renderComposite(ctx, placements, t, W, H, timing);
+      timing.render += performance.now() - r0;
       rgba.push(ctx.getImageData(0, 0, W, H).data);
       onProgress({ frame: i + 1, frames, phase: 'render', etaS: eta(i + 1) });
     }
@@ -178,8 +192,10 @@ export async function runExport(o: ExportOptions, out: string, onProgress: (p: E
     }
     onProgress({ frame: frames, frames, phase: 'write', etaS: 0 });
     const bytes = await window.huskylog.exportWriteFile(out, enc.finish());
-    return { path: out, bytes, frames };
+    return { path: out, bytes, frames, timing };
   } finally {
+    stopExportReaders();
+    setExporting(false);
     const s = useTimeline.getState();
     s.setT(saved.t);
     s.setPlaying(saved.playing);

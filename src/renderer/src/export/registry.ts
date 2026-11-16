@@ -11,7 +11,14 @@ export interface ExportSource {
   content(): HTMLElement | null;
   /** Draws the window at master time t into (0, 0, w, h) of ctx. */
   draw(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, t: number, w: number, h: number): Promise<void>;
+  /** Video windows: the stream they show (export reads it sequentially). */
+  videoStream?(): string | undefined;
 }
+
+/** True while an export runs: live Video windows stop decoding so frames aren't decoded twice. */
+let exporting = false;
+export const isExporting = () => exporting;
+export function setExporting(on: boolean) { exporting = on; }
 
 const sources = new Map<string, ExportSource>();
 const listeners = new Set<() => void>();

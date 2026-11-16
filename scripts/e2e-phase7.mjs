@@ -4,7 +4,7 @@
 // frame against the known sync truth (flash + beep at log 400.00 s).
 // Usage: npm run build && node scripts/e2e-phase7.mjs
 import { _electron as electron } from 'playwright-core';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -142,6 +142,35 @@ try {
     return null;
   }, [ex.id, WAVE - T0]);
   check('audio is in sync with the picture (beep at the flash)', onset !== null && Math.abs(onset - (WAVE - T0)) < 0.02, onset === null ? 'no onset' : `onset ${onset.toFixed(3)} s (flash ${(WAVE - T0).toFixed(3)} s)`);
+
+  // ---- Two video feeds (sequential readers): each tile frame-exact ----
+  // A second copy of the clip, synced 0.5 s later: its flash lands 15 frames after the first.
+  const vid2Path = join(out, 'second_cam.mp4');
+  copyFileSync(vidPath, vid2Path);
+  const before2 = await main.evaluate(() => window.__hl.media.getState().order.length);
+  const f2 = await main.evaluate((x) => window.huskylog.e2eRegister(x), vid2Path);
+  await main.evaluate((file) => window.dispatchEvent(new CustomEvent('hl-e2e-add', { detail: file })), f2);
+  await main.waitForFunction((n) => { const m = window.__hl.media.getState(); return m.order.length > n && m.videos[m.order[n]].status === 'ready'; }, before2, { timeout: 30000 });
+  const vid2 = await main.evaluate((n) => window.__hl.media.getState().order[n], before2);
+  await main.evaluate(([vid2, truth]) => {
+    const h = window.__hl, st = h.syncStore.getState();
+    for (const ev of st.events) st.setMarker(vid2, ev.id, truth.localEvents[ev.name] - 0.5);
+    h.dock.addPanel({ id: 'video-1', component: 'video', title: 'Video 2', params: { video: { stream: vid2, muted: true } }, position: { referencePanel: 'video-0', direction: 'below' } });
+  }, [vid2, truth]);
+  await sleep(1500);
+  const twoFile = join(out, 'two-feeds.mp4');
+  const W0 = WAVE - 2;
+  const r2 = await doExport(main, { windows: ['video-0', 'video-1'], layout: 'grid', format: 'mp4', res: '720p', fps: 30, range: [W0, W0 + 4], audio: '' }, twoFile);
+  check('two video feeds export', !!r2.result, r2.error ?? `${r2.result.frames} frames in ${r2.seconds.toFixed(1)} s`);
+  const e2 = await openExported(main, twoFile);
+  const tile = (id) => { const p = r2.layout.find((q) => q.id === id); return { x: p.x + p.w * 0.35, y: p.y + p.h * 0.3, w: p.w * 0.3, h: p.h * 0.4 }; };
+  const fw = Math.round((WAVE - W0) * 30); // 60
+  const s = async (id, i) => (await regionStats(main, e2.id, i, tile(id))).mean;
+  const a = [await s('video-0', fw - 2), await s('video-0', fw + 1)], b = [await s('video-1', fw + 13), await s('video-1', fw + 16)];
+  const bEarly = await s('video-1', fw + 1);
+  check('two feeds: each tile shows its own frame-exact flash', a[0] < 80 && a[1] > 200 && b[0] < 80 && b[1] > 200 && bEarly < 80,
+    `feed 1: frame ${fw - 2} ${a[0].toFixed(0)}, ${fw + 1} ${a[1].toFixed(0)}; feed 2: frame ${fw + 1} ${bEarly.toFixed(0)}, ${fw + 13} ${b[0].toFixed(0)}, ${fw + 16} ${b[1].toFixed(0)}`);
+  await main.evaluate(() => window.__hl.dock.getPanel('video-1')?.api.close());
 
   // ---- Map + picture-in-picture, short clip ----
   const pipFile = join(out, 'pip.mp4');

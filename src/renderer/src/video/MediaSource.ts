@@ -1,6 +1,7 @@
 import { createFile, MP4BoxBuffer, DataStream } from 'mp4box';
 import type { SrcTrack } from '@core/pack/mp4mux';
 import { srcTrack, type Mp4Like } from '@core/pack/mp4src';
+import { drawScaled, releaseScratch } from './scale';
 
 /**
  * Random access to MP4/MOV video and audio without loading the file:
@@ -51,7 +52,12 @@ export class MediaSource {
   private aConfig: AudioDecoderConfig | null = null;
   private cache = new Map<number, ImageBitmap>();
   private cacheOrder: number[] = [];
-  private static CACHE_MAX = 90;
+  /** Scrub cache budget per video (decoded RGBA bitmaps are large: 4K ≈ 33 MB each). */
+  private static CACHE_BYTES = 384 << 20;
+  private cacheMax = 90;
+  /** Cached bitmaps are at most this big on the long edge (4K would allow only a few frames). */
+  private static CACHE_EDGE = 1920;
+  private bmpSize: { w: number; h: number } | null = null;
   private waveform: Promise<Waveform | null> | null = null;
   private decodeChain: Promise<unknown> = Promise.resolve();
 
@@ -108,6 +114,10 @@ export class MediaSource {
       const startS = n ? this.ptsUs(0) / 1e6 : 0, endS = n ? this.ptsUs(n - 1) / 1e6 : 0;
       let minD = Infinity, maxD = 0;
       for (let i = 1; i < n; i++) { const d = this.ptsUs(i) - this.ptsUs(i - 1); minD = Math.min(minD, d); maxD = Math.max(maxD, d); }
+      const k = Math.min(1, MediaSource.CACHE_EDGE / Math.max(vt.video!.width, vt.video!.height));
+      if (k < 1) this.bmpSize = { w: Math.round(vt.video!.width * k), h: Math.round(vt.video!.height * k) };
+      const bw = this.bmpSize?.w ?? vt.video!.width, bh = this.bmpSize?.h ?? vt.video!.height;
+      this.cacheMax = Math.max(8, Math.min(90, Math.floor(MediaSource.CACHE_BYTES / (bw * bh * 4))));
       this.video = {
         codec: vt.codec, width: vt.video!.width, height: vt.video!.height, rotation: rotationOf(trak.tkhd.matrix),
         frames: n, keyframes: this.vSamples.filter((s) => s.isSync).length, durationS: endS - startS,
@@ -165,7 +175,9 @@ export class MediaSource {
       k--;
       while (k > 0 && !this.vSamples[k]!.isSync) k--;
     }
-    let end = Math.min(this.vSamples.length - 1, target + 30);
+    // Decode ahead (for stepping forward), but no more than half the cache holds.
+    const ahead = Math.min(30, Math.floor(this.cacheMax / 2));
+    let end = Math.min(this.vSamples.length - 1, target + ahead);
     for (let j = target + 1; j <= end; j++) if (this.vSamples[j]!.isSync) { end = j - 1; break; }
 
     // One range read covering the needed samples (they are close together).
@@ -180,7 +192,15 @@ export class MediaSource {
     const decoder = new VideoDecoder({
       output: (f) => {
         const p = rawToPres.get(f.timestamp);
-        pending.push(createImageBitmap(f).then((bmp) => { f.close(); if (p !== undefined) this.put(p, bmp); else bmp.close(); }));
+        // Keep only frames near the target: a whole GOP of 4K bitmaps would not fit.
+        if (p === undefined || p < i - ahead || p > i + ahead) { f.close(); return; }
+        const sz = this.bmpSize;
+        if (sz) {
+          // Shrink on the GPU (createImageBitmap's own resize is slow for 4K frames).
+          try { this.put(p, this.shrunk(f, sz.w, sz.h)); } finally { f.close(); }
+          return;
+        }
+        pending.push(createImageBitmap(f).then((bmp) => { f.close(); this.put(p, bmp); }, (e) => { f.close(); throw e; }));
       },
       error: (e) => { decodeErr = e; },
     });
@@ -203,11 +223,19 @@ export class MediaSource {
     return bmp;
   }
 
+  private shrinkCanvas: OffscreenCanvas | null = null;
+  /** f scaled to w x h, as a GPU-backed ImageBitmap. */
+  private shrunk(f: VideoFrame, w: number, h: number): ImageBitmap {
+    const c = (this.shrinkCanvas ??= new OffscreenCanvas(w, h));
+    drawScaled(c.getContext('2d')!, `cache:${this.url}`, f, f.displayWidth, f.displayHeight, 0, 0, w, h);
+    return c.transferToImageBitmap();
+  }
+
   private put(p: number, bmp: ImageBitmap) {
     if (this.cache.has(p)) { bmp.close(); return; }
     this.cache.set(p, bmp);
     this.cacheOrder.push(p);
-    while (this.cacheOrder.length > MediaSource.CACHE_MAX) {
+    while (this.cacheOrder.length > this.cacheMax) {
       const old = this.cacheOrder.shift()!;
       this.cache.get(old)?.close();
       this.cache.delete(old);
@@ -270,6 +298,11 @@ export class MediaSource {
     return { start: t0, binDt, min, max, rms };
   }
 
+  /** What FrameReader needs: samples in decode order, edit shift, decoder config, reads. */
+  readerInput() {
+    return { samples: this.vSamples, pres: this.pres, shiftUs: this.vShift, config: this.vConfig, read: (a: number, b: number) => this.read(a, b), indexAt: (t: number) => this.indexAt(t) };
+  }
+
   /** Decoder config of the video track (re-encode in Pack & Go). */
   get videoDecoderConfig(): VideoDecoderConfig { return this.vConfig; }
 
@@ -289,6 +322,7 @@ export class MediaSource {
   }
 
   dispose() {
+    releaseScratch(`cache:${this.url}`);
     for (const b of this.cache.values()) b.close();
     this.cache.clear();
   }

@@ -1168,3 +1168,54 @@ Phases 0–6 harnesses still pass.
   step was not exercised on this machine.
 - **Later:** code signing (Azure Trusted Signing or an OV certificate, added to
   the workflow) and an app icon (the default Electron icon is used today).
+
+## Appendix J. Multi-video export performance (2026-11-16)
+
+**Problem (team report):** export slowed sharply with more than one video and
+crashed with several 4K feeds. Measured on an i7-1360P laptop (16 GB, Iris Xe):
+three 4K feeds decoded at 4 frames/s, and the full export crashed the renderer.
+
+**Causes:**
+- the scrub cache kept 90 full-size bitmaps per video (4K: ~3 GB each);
+- every cache miss started a new decoder at the previous keyframe;
+- live Video windows decoded the same frames again during export;
+- Chrome's 'high' image smoothing builds a mipmap chain of the whole 4K frame
+  on every draw (~30 ms per 4K frame on this GPU). The cost lands when the
+  canvas is read for encoding, so it looked like encoder time.
+
+**Changes:**
+- `video/FrameReader.ts`: export reads each feed with one decoder running
+  straight through the range. Each sample is decoded once, frames stay
+  VideoFrames, and at most a few are held per feed.
+- `video/scale.ts`: frames are halved with bilinear steps, then drawn. This is
+  as fast as 'low' smoothing and within 48–54 dB PSNR of 'high' ('low' alone:
+  29–35 dB, visibly aliased).
+- Live Video windows pause while an export runs.
+- The scrub cache is capped at 384 MB per video, with bitmaps at most 1920 px
+  on the long edge, shrunk on the GPU.
+- Export results carry a timing breakdown (render, encode, per-window draw).
+
+**Measured** (`npm run bench:export`, same machine, 1080p30 output; SolidWorks
+was running, so absolute numbers are low):
+
+| Feeds | Before | After |
+|---|---|---|
+| 1 / 2 / 3 × 1080p60 | 15.7 / 14.8 / 9.7 fps | 30.4 / 30.2 / 27.4 fps |
+| 3 × 1080p60 + map + graph | 10.4 fps | 23.1 fps |
+| 3 × 4K30 (50 Mbit/s) | crashed | 13–23 fps |
+| Scrubbing 3 × 4K | 2.6–4.2 fps | 9.9–11.5 fps |
+
+**Tried and dropped** (no measurable gain): having the feeds take turns on the
+hardware decoder, and a software H.264 encoder.
+
+**Verified:** a new Phase 7 check exports two feeds synced 0.5 s apart; each
+tile's flash is on its exact frame (Phase 7: 23/23). Phases 4 and 6, the UX
+harness and the unit tests pass. The Phase 5 window-position checks and one
+Sync playback timing check fail the same way on `main`, so that is the
+machine's state.
+
+**Open:**
+- A full-frame 3D map can wait over a second per frame for its map tiles to
+  load at some points in a flight (0.8 fps seen).
+- On-screen digital zoom of 4K video uses the 1920 px cached frames. Export
+  still uses full resolution.
