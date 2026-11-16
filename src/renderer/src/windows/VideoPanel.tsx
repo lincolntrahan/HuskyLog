@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../overlay/OverlayLayer';
-import { registerExportSource } from '../export/registry';
+import { isExporting, registerExportSource } from '../export/registry';
 import { drawVideoAt } from '../export/videoDraw';
 import { useOverlays, type OverlayItem } from '../overlay/model';
 import { NO_ZOOM, panBy, zoomAt, zoomTransform, type VideoZoom } from '@core/overlay/zoom';
@@ -82,6 +82,7 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
   useEffect(() => registerExportSource({
     id: api.id, type: 'video', title: api.title ?? 'Video', content: () => stageRef.current,
     draw: (c, t, w, h) => drawVideoAt(c, streamRef.current, cfgRef.current.zoom, t, w, h),
+    videoStream: () => streamRef.current,
   }), [api.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!cfg.stream && newest) setCfg({ ...cfg, stream: newest }); }, [newest]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -118,6 +119,7 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
     };
 
     const update = () => {
+      if (isExporting()) { lastLocal = NaN; return; } // the export decodes its own frames
       const tl = useTimeline.getState();
       const s = streamSolution(stream);
       if (!s || s.status === 'unsynced') {

@@ -6,6 +6,7 @@ import { App } from './App';
 import { startPlaybackClock, useTimeline } from './data/timeline';
 import { useExpressions } from './data/expressions';
 import { useMedia, mediaSource } from './data/media';
+import { videoDrawOpts } from './export/videoDraw';
 import { useSync } from './data/sync';
 import { loadChannel, useLogs } from './data/logs';
 import { useOverlays } from './overlay/model';
@@ -17,5 +18,5 @@ import { startSession, workspaceDebug } from './data/workspace';
 createRoot(document.getElementById('root')!).render(<App />);
 startPlaybackClock();
 // Diagnostics for the e2e harness and DevTools.
-Object.assign(window.__hl, { timeline: useTimeline, expressions: useExpressions, media: useMedia, mediaSource, syncStore: useSync, logs: useLogs, loadChannel, overlays: useOverlays, workspace: workspaceDebug });
+Object.assign(window.__hl, { timeline: useTimeline, expressions: useExpressions, media: useMedia, mediaSource, videoDrawOpts, syncStore: useSync, logs: useLogs, loadChannel, overlays: useOverlays, workspace: workspaceDebug });
 void startSession();

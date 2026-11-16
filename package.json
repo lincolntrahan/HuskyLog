@@ -27,7 +27,8 @@
     "gen:syncvideo": "node scripts/gen-sync-video.mjs",
     "release:patch": "npm version patch && git push --follow-tags",
     "release:minor": "npm version minor && git push --follow-tags",
-    "e2e:ux": "node scripts/e2e-ux.mjs"
+    "e2e:ux": "node scripts/e2e-ux.mjs",
+    "bench:export": "node scripts/bench-export.mjs"
   },
   "devDependencies": {
     "@cesium/core": "^0.1.1",
