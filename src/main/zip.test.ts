@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -58,7 +58,7 @@ describe('zip', () => {
     expect((await readEntry(path, after.find((e) => e.name === 'manifest.json')!)).toString()).toBe('{"v":2}');
   });
 
-  it.runIf(process.platform === 'win32')('is readable by Windows tools (tar and Expand-Archive)', async () => {
+  it.runIf(process.platform === 'win32')('is readable by Windows tools (tar and the .NET zip library)', async () => {
     const path = join(dir, 'interop.zip');
     const w = await ZipWriter.create(path);
     await w.addBuffer('a/readme.txt', Buffer.from('hello pack '.repeat(100)));
@@ -68,9 +68,14 @@ describe('zip', () => {
     // Windows' own bsdtar (Git's GNU tar may be first on PATH).
     execFileSync(join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32', 'tar.exe'), ['-xf', path, '-C', out1]);
     expect(readFileSync(join(out1, 'a', 'readme.txt'), 'utf8')).toBe('hello pack '.repeat(100));
-    const out2 = mkdtempSync(join(dir, 'ps-'));
-    execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${path}' -DestinationPath '${out2}'`]);
-    expect(readFileSync(join(out2, 'b', 'data.bin')).length).toBe(70000);
+    // Windows' own zip library (what Expand-Archive and other tools use). Expand-Archive itself is
+    // broken on the CI image ("Cannot find an overload for ExtractToDirectory"), so call the library.
+    const out2 = realpathSync.native(mkdtempSync(join(dir, 'ps-')));
+    execFileSync('powershell', ['-NoProfile', '-Command',
+      `$ErrorActionPreference='Stop'; Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory('${realpathSync.native(path)}', '${out2}')`]);
+    const found = (readdirSync(out2, { recursive: true }) as string[]).find((p) => p.replace(/\\/g, '/').endsWith('b/data.bin'));
+    expect(found, `extracted: [${(readdirSync(out2, { recursive: true }) as string[]).join(', ')}]`).toBeTruthy();
+    expect(readFileSync(join(out2, found!)).length).toBe(70000);
   }, 30000);
 
   it('rejects files that are not zips', async () => {
