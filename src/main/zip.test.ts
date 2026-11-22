@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -70,7 +70,10 @@ describe('zip', () => {
     expect(readFileSync(join(out1, 'a', 'readme.txt'), 'utf8')).toBe('hello pack '.repeat(100));
     const out2 = mkdtempSync(join(dir, 'ps-'));
     execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${path}' -DestinationPath '${out2}'`]);
-    expect(readFileSync(join(out2, 'b', 'data.bin')).length).toBe(70000);
+    // Newer PowerShell archive modules may extract into a subfolder: find the file anywhere below.
+    const found = (readdirSync(out2, { recursive: true }) as string[]).find((p) => p.replace(/\\/g, '/').endsWith('b/data.bin'));
+    expect(found, `extracted: ${(readdirSync(out2, { recursive: true }) as string[]).join(', ')}`).toBeTruthy();
+    expect(readFileSync(join(out2, found!)).length).toBe(70000);
   }, 30000);
 
   it('rejects files that are not zips', async () => {
