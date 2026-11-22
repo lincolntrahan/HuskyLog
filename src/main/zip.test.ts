@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -68,11 +68,15 @@ describe('zip', () => {
     // Windows' own bsdtar (Git's GNU tar may be first on PATH).
     execFileSync(join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32', 'tar.exe'), ['-xf', path, '-C', out1]);
     expect(readFileSync(join(out1, 'a', 'readme.txt'), 'utf8')).toBe('hello pack '.repeat(100));
-    const out2 = mkdtempSync(join(dir, 'ps-'));
-    execFileSync('powershell', ['-NoProfile', '-Command', `Expand-Archive -LiteralPath '${path}' -DestinationPath '${out2}'`]);
+    // Long paths: CI temp folders come as 8.3 short names (RUNNER~1), which Expand-Archive may not resolve.
+    const out2 = realpathSync.native(mkdtempSync(join(dir, 'ps-')));
+    const zipLong = realpathSync.native(path);
+    const ps = execFileSync('powershell', ['-NoProfile', '-Command',
+      `$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '${zipLong}' -DestinationPath '${out2}' -Force; ` +
+      `'module ' + (Get-Module Microsoft.PowerShell.Archive).Version + ', PS ' + $PSVersionTable.PSVersion`], { encoding: 'utf8' });
     // Newer PowerShell archive modules may extract into a subfolder: find the file anywhere below.
     const found = (readdirSync(out2, { recursive: true }) as string[]).find((p) => p.replace(/\\/g, '/').endsWith('b/data.bin'));
-    expect(found, `extracted: ${(readdirSync(out2, { recursive: true }) as string[]).join(', ')}`).toBeTruthy();
+    expect(found, `extracted: [${(readdirSync(out2, { recursive: true }) as string[]).join(', ')}] · ${ps.trim()}`).toBeTruthy();
     expect(readFileSync(join(out2, found!)).length).toBe(70000);
   }, 30000);
 
