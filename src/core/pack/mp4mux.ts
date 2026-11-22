@@ -194,6 +194,25 @@ export function buildMp4(tracks: MuxTrack[]): { head: Uint8Array; moov: Uint8Arr
   return { head, moov, payloadSize, fileSize: head.length + payloadSize + moov.length };
 }
 
+/** An MPEG-4 descriptor: tag, 4-byte expandable length, body. */
+function descriptor(tag: number, body: Uint8Array): Uint8Array {
+  const n = body.length;
+  return new W().u8(tag).u8(0x80 | ((n >> 21) & 0x7f)).u8(0x80 | ((n >> 14) & 0x7f)).u8(0x80 | ((n >> 7) & 0x7f)).u8(n & 0x7f).push(body).bytes();
+}
+
+/** stsd with one mp4a (AAC) sample entry; `asc` is the AudioSpecificConfig (WebCodecs decoderConfig.description). */
+export function mp4aStsd(sampleRate: number, channels: number, asc: Uint8Array, avgBitrate = 128000): Uint8Array {
+  const decSpecific = descriptor(0x05, asc);
+  const decConfig = descriptor(0x04, new W().u8(0x40).u8(0x15).u8(0).u16(0) // AAC, audio stream, buffer size 0
+    .u32(avgBitrate).u32(avgBitrate).push(decSpecific).bytes());
+  const sl = descriptor(0x06, new Uint8Array([0x02]));
+  const es = descriptor(0x03, new W().u16(1).u8(0).push(decConfig).push(sl).bytes());
+  const entry = new W().zeros(6).u16(1)               // reserved, data_reference_index
+    .zeros(8).u16(channels).u16(16).u16(0).u16(0)   // version/revision/vendor, channels, sample size, pre_defined, reserved
+    .u32(Math.min(65535, sampleRate) * 65536);       // 16.16 sample rate
+  return full('stsd', 0, 0, new W().u32(1), box('mp4a', entry, full('esds', 0, 0, es)));
+}
+
 /** stsd with one avc1 sample entry (for WebCodecs H.264 output, AVCC format). */
 export function avc1Stsd(width: number, height: number, avcC: Uint8Array): Uint8Array {
   const entry = new W().zeros(6).u16(1)            // reserved, data_reference_index

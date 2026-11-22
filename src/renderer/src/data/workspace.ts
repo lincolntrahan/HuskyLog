@@ -56,7 +56,7 @@ export function captureWorkspace(): Workspace {
     expressions: useExpressions.getState().named,
     cameras: useApp.getState().cameras,
     mapAreas: [],
-    ui: { t: tl.t, range: tl.range, speed: tl.speed, tab: useApp.getState().tab },
+    ui: { t: tl.t, range: tl.range, speed: tl.speed, tab: useApp.getState().tab, crop: tl.crop },
   };
 }
 
@@ -101,6 +101,7 @@ export async function applySession(session: OpenedSession): Promise<void> {
   const tl = useTimeline.getState();
   tl.setSpeed(ws.ui.speed);
   tl.setRange(ws.ui.range);
+  tl.setCrop(ws.ui.crop ?? null);
   tl.setT(ws.ui.t);
   useSession.setState({ kind: session.kind, path: session.path, missing, importedMapAreas: session.importedMapAreas, savedKey: null, dirty: false });
   settle();

@@ -34,5 +34,9 @@ execFileSync(ffmpeg, [
   '-vf', vf, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '30', '-g', '30', '-pix_fmt', 'yuv420p',
   '-c:a', 'aac', '-b:a', '96k', '-shortest', dst,
 ], { stdio: 'inherit' });
+// The same clip as some cameras record it: uncompressed 16-bit PCM ('sowt'), 32 kHz mono, in a MOV.
+const pcmDst = join(out, 'ground_cam_pcm.mov');
+execFileSync(ffmpeg, ['-y', '-hide_banner', '-loglevel', 'error', '-i', dst, '-c:v', 'copy', '-c:a', 'pcm_s16le', '-ar', '32000', '-ac', '1', pcmDst], { stdio: 'inherit' });
+console.log('wrote', pcmDst);
 writeFileSync(join(out, 'ground_cam_sync.truth.json'), JSON.stringify({ ...TRUTH, localEvents: { 'Prop start': L1, Wave: L2 } }, null, 2));
 console.log('wrote', dst, `(flashes at local ${L1.toFixed(4)} s and ${L2.toFixed(4)} s)`);

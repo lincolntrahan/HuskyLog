@@ -8,6 +8,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { buildAligned } from '@core/series/decimate';
 import { interpAt, medianDt, rangeStats } from '@core/series/series';
+import { useRemoved } from '../../data/remove';
 import { channelExists, loadChannel, primaryLog, refKey, useLogs, type ChannelRef, type LoadedChannel } from '../../data/logs';
 import { fmtTime, timeDomain, useTimeline } from '../../data/timeline';
 import { ChannelPicker } from './ChannelPicker';
@@ -43,6 +44,13 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
     api.updateParameters({ graph: next });
   }, [api]);
 
+  // Lines from a log removed on the Import tab go with it.
+  const removed = useRemoved((s) => s.ids);
+  useEffect(() => {
+    const keep = cfg.series.filter((s) => !s.stream || !removed.includes(s.stream));
+    if (keep.length !== cfg.series.length) setCfg({ ...cfg, series: keep });
+  }, [removed]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const logs = useLogs();
   const primary = primaryLog();
   const named = useExpressions((s) => s.named);
@@ -56,6 +64,9 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   const [xRange, setXRange] = useState<[number, number] | null>(null);
   const [hoverT, setHoverT] = useState<number | null>(null);
   const range = useTimeline((s) => s.range);
+  const crop = useTimeline((s) => s.crop);
+  // A new workspace crop resets this graph's own zoom.
+  useEffect(() => { setXRange(null); }, [crop]);
   const playT = useTimeline((s) => s.t);
 
   // Resolve series → refs → loaded data.
@@ -136,8 +147,14 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
   const domain = useMemo<[number, number]>(() => {
     let a = Infinity, b = -Infinity;
     for (const r of visible) { a = Math.min(a, r.data!.t[0]!); b = Math.max(b, r.data!.t[r.data!.t.length - 1]!); }
+    if (crop) return crop;
     return Number.isFinite(a) ? [a, b] : timeDomain();
-  }, [visible.map((r) => r.key).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [visible.map((r) => r.key).join(), crop]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Average of each line over the crop (shown in the legend).
+  const cropAvg = useMemo(() => {
+    if (!crop) return {} as Record<string, number>;
+    return Object.fromEntries(visible.map((r) => [r.key, rangeStats(r.data!, crop[0], crop[1]).mean]));
+  }, [visible.map((r) => r.key).join(), crop]); // eslint-disable-line react-hooks/exhaustive-deps
   const view = xRange ?? domain;
 
   // ---- uPlot ----
@@ -255,8 +272,17 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
     };
     let pan: { x: number; v: [number, number] } | null = null;
     let down: { x: number; y: number } | null = null;
+    // Right-drag: crop the whole workspace to the dragged time range.
+    let cropDrag: { x0: number; band: HTMLDivElement } | null = null;
     const onDown = (e: MouseEvent) => {
-      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      if (e.button === 2) {
+        const band = over.ownerDocument.createElement('div');
+        band.className = 'graph-crop-band';
+        band.style.left = `${e.offsetX}px`; band.style.width = '0px';
+        over.appendChild(band);
+        cropDrag = { x0: e.offsetX, band };
+        e.stopPropagation(); e.preventDefault();
+      } else if (e.button === 1 || (e.button === 0 && e.altKey)) {
         pan = { x: e.clientX, v: stateRef.current.view };
         e.stopPropagation(); e.preventDefault();
       } else if (e.button === 0) {
@@ -273,6 +299,12 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
     };
     over.addEventListener('mouseup', onClickUp);
     const onMove = (e: MouseEvent) => {
+      if (cropDrag) {
+        const x = Math.max(0, Math.min(over.clientWidth, e.clientX - over.getBoundingClientRect().left));
+        cropDrag.band.style.left = `${Math.min(x, cropDrag.x0)}px`;
+        cropDrag.band.style.width = `${Math.abs(x - cropDrag.x0)}px`;
+        return;
+      }
       if (!pan) return;
       const dx = ((e.clientX - pan.x) / over.clientWidth) * (pan.v[1] - pan.v[0]);
       const [d0, d1] = stateRef.current.domain;
@@ -281,7 +313,17 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
       if (b > d1) { a -= b - d1; b = d1; }
       setXRange([a, b]);
     };
-    const onUp = () => { pan = null; };
+    const onUp = (e: MouseEvent) => {
+      pan = null;
+      if (cropDrag) {
+        const x = Math.max(0, Math.min(over.clientWidth, e.clientX - over.getBoundingClientRect().left));
+        cropDrag.band.remove();
+        if (Math.abs(x - cropDrag.x0) >= 4) useTimeline.getState().setCrop([u.posToVal(cropDrag.x0, 'x'), u.posToVal(x, 'x')]);
+        cropDrag = null;
+      }
+    };
+    const onCtx = (e: MouseEvent) => e.preventDefault();
+    over.addEventListener('contextmenu', onCtx);
     over.addEventListener('wheel', onWheel, { passive: false });
     over.addEventListener('mousedown', onDown, true);
     const win = host.ownerDocument.defaultView ?? window;
@@ -380,9 +422,9 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
         <PresetMenu cfg={cfg} onApply={(c) => { setErrors({}); setCfg(c); }} />
         <button onClick={() => setXRange(null)} disabled={!xRange} title="Show the whole log (double-click the plot)">Fit</button>
         <button onClick={() => range && setXRange(range)} disabled={!range} title="Zoom to the selected range (Z)">Zoom to selection</button>
-        <button onClick={() => setExporting(true)} disabled={!range || !visible.length} title="Export the selected range as CSV">Export CSV…</button>
+        <button onClick={() => setExporting(true)} disabled={!visible.length} title="Export the selection, the crop range or the whole log as CSV">Export CSV…</button>
         <label className="chk"><input type="checkbox" checked={cfg.modeBands} onChange={(e) => setCfg({ ...cfg, modeBands: e.target.checked })} /> Modes</label>
-        <span className="graph-hint muted">drag: select · click: playhead · wheel: zoom · Alt/middle-drag: pan</span>
+        <span className="graph-hint muted">drag: select · right-drag: crop workspace · click: playhead · wheel: zoom · Alt/middle-drag: pan</span>
       </div>
       <div className="legend">
         {resolved.map((r, i) => (
@@ -390,6 +432,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
             <input type="color" value={r.cfg.color} onChange={(e) => update(i, { color: e.target.value })} aria-label={`Colour of ${r.cfg.id}`} />
             <span className="chip-name" onClick={() => update(i, { visible: !r.cfg.visible })}>{r.label}</span>
             <span className="chip-val">{r.data ? `${fmtVal(interpAt(r.data, readT, 5 * medianDt(r.data.t) || Infinity))} ${r.data.unit}` : r.error ? 'error' : r.missing ? 'missing' : '…'}</span>
+            {crop && r.data && r.key in cropAvg && <span className="chip-avg" title={`Average over the crop ${fmtTime(crop[0])} → ${fmtTime(crop[1])}`}>avg {fmtVal(cropAvg[r.key]!)}</span>}
             <button className="chip-axis" title="Axis: auto / left / right" onClick={() => update(i, { axis: r.cfg.axis === 'auto' ? 'left' : r.cfg.axis === 'left' ? 'right' : 'auto' })}>
               {r.cfg.axis === 'auto' ? (r.axis === 'right' ? 'R' : 'L') + '·' : r.cfg.axis === 'left' ? 'L' : 'R'}
             </button>
@@ -400,7 +443,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
         {resolved.length === 0 && <span className="muted">No series. Click ＋ Add or pick a preset.</span>}
       </div>
       <div className="plot-wrap"><div className="plot-host" ref={hostRef} /><OverlayLayer api={api} initial={params?.overlays} /></div>
-      {range && visible.length > 0 && <StatsTable series={visible} range={range} />}
+      {(range ?? crop) && visible.length > 0 && <StatsTable series={visible} range={(range ?? crop)!} caption={range ? 'Selection' : 'Crop'} />}
       <div className="graph-status muted">
         {hoverT !== null ? `cursor ${fmtTime(hoverT)}` : `playhead ${fmtTime(playT)}`}
         {range ? ` · selection ${fmtTime(range[0])} → ${fmtTime(range[1])} (${(range[1] - range[0]).toFixed(3)} s)` : ''}
@@ -414,7 +457,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
       {exprEdit && primary && (
         <ExpressionEditor stream={editing?.stream ?? primary.id} initial={editInitial} onCancel={() => setExprEdit(null)} onDone={saveExpr} />
       )}
-      {exporting && range && <ExportDialog series={visible} range={range} logName={primary?.name ?? 'log'} onClose={() => setExporting(false)} />}
+      {exporting && visible.length > 0 && <ExportDialog series={visible} selection={range} crop={crop} logName={primary?.name ?? 'log'} onClose={() => setExporting(false)} />}
     </div>
   );
 }

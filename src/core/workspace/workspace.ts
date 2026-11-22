@@ -46,7 +46,7 @@ export interface Workspace {
   cameras: Record<string, unknown>;
   /** Offline map areas this session uses (ids in the map cache). */
   mapAreas: string[];
-  ui: { t: number; range: [number, number] | null; speed: number; tab: string };
+  ui: { t: number; range: [number, number] | null; speed: number; tab: string; crop?: [number, number] | null };
 }
 
 export class WorkspaceError extends Error {}
@@ -71,7 +71,7 @@ export function parseWorkspace(text: string): Workspace {
     expressions: w.expressions ?? {},
     cameras: w.cameras ?? {},
     mapAreas: w.mapAreas ?? [],
-    ui: { t: w.ui?.t ?? 0, range: w.ui?.range ?? null, speed: w.ui?.speed ?? 1, tab: w.ui?.tab ?? 'review' },
+    ui: { t: w.ui?.t ?? 0, range: w.ui?.range ?? null, speed: w.ui?.speed ?? 1, tab: w.ui?.tab ?? 'review', crop: w.ui?.crop ?? null },
   };
 }
 

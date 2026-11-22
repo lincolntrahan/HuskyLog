@@ -3,6 +3,7 @@ import { useLogs } from '../data/logs';
 import { useMedia } from '../data/media';
 import { fmtTime } from '../data/timeline';
 import { MissingFiles } from '../workspace/FileMenu';
+import { RemoveStreamButton } from './RemoveStream';
 
 const fmtSize = (n: number) => (n > 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`);
 
@@ -25,7 +26,7 @@ export function ImportTab() {
         <>
           <h3>Logs</h3>
           <table className="files">
-            <thead><tr><th>Log</th><th>Vehicle</th><th>Duration</th><th>Channels</th><th>Status</th></tr></thead>
+            <thead><tr><th>Log</th><th>Vehicle</th><th>Duration</th><th>Channels</th><th>Status</th><th /></tr></thead>
             <tbody>
               {order.map((id) => {
                 const l = logs[id]!;
@@ -46,6 +47,7 @@ export function ImportTab() {
                       )}
                       {l.status === 'error' && <span className="err">{l.error}</span>}
                     </td>
+                    <td>{l.status !== 'loading' && <RemoveStreamButton id={id} />}</td>
                   </tr>
                 );
               })}
@@ -58,7 +60,7 @@ export function ImportTab() {
         <>
           <h3>Videos</h3>
           <table className="files">
-            <thead><tr><th>Video</th><th>Format</th><th>Duration</th><th>Audio</th><th>Status</th></tr></thead>
+            <thead><tr><th>Video</th><th>Format</th><th>Duration</th><th>Audio</th><th>Status</th><th /></tr></thead>
             <tbody>
               {media.order.map((id) => {
                 const v = media.videos[id]!;
@@ -74,6 +76,7 @@ export function ImportTab() {
                       {v.status === 'ready' && (i?.supported ? <span className="ok">Ready · sync it on the Sync tab</span> : <span className="err">This computer can't decode {i?.codec}</span>)}
                       {v.status === 'error' && <span className="err">{v.error}</span>}
                     </td>
+                    <td>{v.status !== 'loading' && <RemoveStreamButton id={id} />}</td>
                   </tr>
                 );
               })}

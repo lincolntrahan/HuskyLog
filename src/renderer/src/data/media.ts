@@ -46,3 +46,13 @@ export async function openVideo(file: OpenedFile, opts: { id?: string; name?: st
 }
 
 export const mediaSource = (id: string) => sources.get(id);
+
+/** Removes a video from the session and frees its decoder cache. */
+export function closeVideo(id: string): void {
+  sources.get(id)?.dispose();
+  sources.delete(id);
+  useMedia.setState((s) => {
+    const { [id]: _gone, ...videos } = s.videos;
+    return { videos, order: s.order.filter((x) => x !== id) };
+  });
+}

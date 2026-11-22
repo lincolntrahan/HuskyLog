@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { CameraFacing } from '../adi/drawAdi';
 import type { NRect } from '@core/overlay/rect';
 
 /**
@@ -37,6 +38,8 @@ export interface OverlayItem {
   tapes?: boolean;
   /** ADI: see-through HUD lines (true) or the filled sky/ground ball. */
   hud?: boolean;
+  /** Which way the camera under this horizon looks (backward: tail cams). */
+  facing?: CameraFacing;
 }
 
 export const DEFAULT_STYLE: OverlayStyle = { color: '#ffffff', bg: '#000000', opacity: 0.45, align: 'left' };

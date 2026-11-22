@@ -1,5 +1,5 @@
 import { toPx } from '@core/overlay/rect';
-import { drawAdi } from '../adi/drawAdi';
+import { drawAdi, forCamera } from '../adi/drawAdi';
 import type { OverlayItem } from './model';
 import { adiState, lineValue } from './values';
 
@@ -62,7 +62,7 @@ export function drawAdiOverlay(ctx: CanvasRenderingContext2D, item: OverlayItem,
   if (item.style.opacity > 0) { ctx.fillStyle = hexA(item.style.bg, item.style.opacity); ctx.fillRect(x, y, w, h); }
   const s = adiState(item, tMaster);
   ctx.translate(x, y);
-  if (s) drawAdi(ctx, w, h, s, { overlay: true, tapes: item.tapes ?? false, hud: item.hud ?? true });
+  if (s) drawAdi(ctx, w, h, forCamera(s, item.facing), { overlay: true, tapes: item.tapes ?? false, hud: item.hud ?? true });
   ctx.restore();
 }
 

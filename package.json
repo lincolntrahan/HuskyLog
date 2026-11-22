@@ -28,7 +28,8 @@
     "release:patch": "npm version patch && git push --follow-tags",
     "release:minor": "npm version minor && git push --follow-tags",
     "e2e:ux": "node scripts/e2e-ux.mjs",
-    "bench:export": "node scripts/bench-export.mjs"
+    "bench:export": "node scripts/bench-export.mjs",
+    "e2e:features": "node scripts/e2e-features.mjs"
   },
   "devDependencies": {
     "@cesium/core": "^0.1.1",

@@ -1,3 +1,4 @@
+import { RemoveStreamButton } from '../tabs/RemoveStream';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { provideMissing, saveSession, sessionName, useSession } from '../data/workspace';
@@ -215,6 +216,7 @@ export function MissingFiles() {
         <div key={m.id} className="missing-row">
           <span>{m.kind === 'log' ? 'Log' : 'Video'} <b>{m.ref.name}</b> <span className="muted">{fmtBytes(m.ref.size)}{m.ref.path ? ` · was ${m.ref.path}` : ''}</span></span>
           <button onClick={() => void locate(m.id)}>Locate…</button>
+          <RemoveStreamButton id={m.id} />
         </div>
       ))}
       {msg && <div className="warn">{msg}</div>}
