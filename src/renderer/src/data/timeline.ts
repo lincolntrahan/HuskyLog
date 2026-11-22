@@ -12,10 +12,13 @@ interface TimelineState {
   playing: boolean;
   speed: number;
   range: [number, number] | null;  // global selection (stats / export default)
+  /** Workspace crop (right-drag on a timeline): every window shows only this time range. */
+  crop: [number, number] | null;
   setT: (t: number) => void;
   setPlaying: (p: boolean) => void;
   setSpeed: (s: number) => void;
   setRange: (r: [number, number] | null) => void;
+  setCrop: (r: [number, number] | null) => void;
 }
 
 export const useTimeline = create<TimelineState>((set) => ({
@@ -23,14 +26,29 @@ export const useTimeline = create<TimelineState>((set) => ({
   playing: false,
   speed: 1,
   range: null,
+  crop: null,
   setT: (t) => set({ t }),
   setPlaying: (playing) => set({ playing }),
   setSpeed: (speed) => set({ speed }),
   setRange: (range) => set({ range }),
+  setCrop: (crop) => set((s) => {
+    if (!crop) return { crop: null };
+    const c: [number, number] = [Math.min(crop[0], crop[1]), Math.max(crop[0], crop[1])];
+    // Keep the playhead and selection inside the crop.
+    const t = Math.min(c[1], Math.max(c[0], s.t));
+    const range = s.range && s.range[1] > c[0] && s.range[0] < c[1] ? [Math.max(c[0], s.range[0]), Math.min(c[1], s.range[1])] as [number, number] : null;
+    return { crop: c, t, range };
+  }),
 }));
 
-/** Union of loaded logs' time ranges. */
+/** The time range the workspace shows: the crop if one is set, else everything loaded. */
 export function timeDomain(): [number, number] {
+  const c = useTimeline.getState().crop;
+  return c ?? fullDomain();
+}
+
+/** Union of loaded logs' (and synced videos') time ranges. */
+export function fullDomain(): [number, number] {
   let a = Infinity, b = -Infinity;
   for (const l of Object.values(useLogs.getState().logs)) {
     if (!l.summary) continue;

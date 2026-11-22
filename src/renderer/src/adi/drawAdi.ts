@@ -27,6 +27,19 @@ export interface AdiOptions {
 const SKY = '#2f6fb3', SKY2 = '#7fb3e6', GROUND = '#7a4f2a', GROUND2 = '#3d2714';
 const FG = '#ffffff', AMBER = '#ffcc00', FONT = 'Segoe UI, system-ui, sans-serif';
 
+/** Which way a camera looks along the aircraft. */
+export type CameraFacing = 'forward' | 'backward';
+
+/**
+ * Attitude as seen through a camera. Looking backward, the view axis is
+ * reversed: rolling right turns the picture the other way, pitching up tilts
+ * the camera down, and the camera points 180° from the nose.
+ */
+export function forCamera(s: AdiState, facing: CameraFacing = 'forward'): AdiState {
+  if (facing !== 'backward') return s;
+  return { ...s, roll: -s.roll, pitch: -s.pitch, heading: (s.heading + 180) % 360 };
+}
+
 export function drawAdi(ctx: CanvasRenderingContext2D, w: number, h: number, s: AdiState, o: AdiOptions = {}): void {
   const tapes = o.tapes ?? true;
   ctx.save();

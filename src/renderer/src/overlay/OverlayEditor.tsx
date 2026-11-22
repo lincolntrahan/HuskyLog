@@ -78,6 +78,9 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
         <div className="oe-row">
           <label className="chk"><input type="checkbox" checked={item.hud ?? true} onChange={(e) => patch({ hud: e.target.checked })} /> See-through (HUD)</label>
           <label className="chk"><input type="checkbox" checked={item.tapes ?? false} onChange={(e) => patch({ tapes: e.target.checked })} /> Speed / altitude / heading tapes</label>
+          <label title="Backward for tail cams: roll and pitch are mirrored and the heading turned 180°, so the horizon matches the picture">Camera faces <select value={item.facing ?? 'forward'} onChange={(e) => patch({ facing: e.target.value as 'forward' | 'backward' })} aria-label="Camera faces">
+            <option value="forward">forward</option><option value="backward">backward</option>
+          </select></label>
         </div>
       )}
       <div className="oe-row">

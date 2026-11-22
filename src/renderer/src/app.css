@@ -73,7 +73,12 @@ input[type='text'], input:not([type]), input[type='number'] {
 /* Timeline */
 .timeline { display: flex; align-items: center; gap: 8px; padding: 0 10px; background: var(--bg-2); border-top: 1px solid var(--border); }
 .timeline .time { min-width: 80px; }
+.timeline .scrub-wrap { flex: 1; position: relative; display: flex; align-items: center; }
 .timeline .scrub { flex: 1; accent-color: #ffcc00; }
+.crop-band { position: absolute; top: 2px; bottom: 2px; background: rgba(255, 140, 0, .25); border: 1px solid rgba(255, 140, 0, .8); border-radius: 3px; pointer-events: none; }
+.crop-pill { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border-radius: 10px; background: #4a3315; color: #ffcf8a; font-size: 12px; }
+.crop-pill button { padding: 0 4px; border: none; background: transparent; color: inherit; }
+.graph-crop-band { position: absolute; top: 0; bottom: 0; background: rgba(255, 140, 0, .18); border-left: 1px solid rgba(255, 140, 0, .9); border-right: 1px solid rgba(255, 140, 0, .9); pointer-events: none; z-index: 5; }
 .sel-pill { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border-radius: 10px; background: #2b3a4d; font-size: 12px; }
 .sel-pill button { padding: 0 4px; border: none; background: transparent; }
 
@@ -88,6 +93,7 @@ input[type='text'], input:not([type]), input[type='number'] {
 .chip input[type='color'] { width: 16px; height: 16px; padding: 0; border: none; background: none; cursor: pointer; }
 .chip-name { cursor: pointer; }
 .chip-val { font-family: Consolas, monospace; color: var(--fg-dim); min-width: 64px; text-align: right; }
+.chip-avg { font-family: Consolas, monospace; color: #ffcf8a; font-size: 11px; white-space: nowrap; }
 .chip button { border: none; background: transparent; padding: 0 3px; color: var(--fg-dim); font-size: 11px; }
 .plot-host { flex: 1; min-height: 120px; position: relative; overflow: hidden; }
 .graph-status { font-size: 11px; padding: 2px 8px; }
@@ -309,3 +315,9 @@ progress { width: 140px; }
 .sync-preview-stage { cursor: ew-resize; display: flex; justify-content: center; background: #000; }
 .sync-preview-stage canvas, .sync-preview-stage video { max-width: 100%; max-height: 100%; }
 .source-btn.compact .caret { color: var(--fg); font-size: 12px; }
+
+/* Remove-from-session button on Import rows */
+.row-x { padding: 0 7px; line-height: 20px; background: transparent; border: 1px solid transparent; color: var(--muted, #8a94a3); border-radius: 4px; }
+.row-x:hover { color: #ff6b6b; border-color: #ff6b6b55; background: #ff6b6b14; }
+button.danger { background: #c94848; border-color: #c94848; }
+button.danger:hover { background: #d95858; }

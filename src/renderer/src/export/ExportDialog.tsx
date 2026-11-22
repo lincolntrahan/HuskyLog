@@ -38,6 +38,15 @@ export function ExportDialog() {
   const [gifFps, setGifFps] = useState(15);
   const [audio, setAudio] = useState<string>('');
   const [range, setRange] = useState<[string, string]>(['', '']);
+  const crop = useTimeline((s) => s.crop);
+  const [useCrop, setUseCrop] = useState(false);
+  const applyCrop = (on: boolean) => {
+    setUseCrop(on);
+    const tl = useTimeline.getState();
+    const [, b] = timeDomain();
+    const r = on && tl.crop ? tl.crop : tl.range ?? [tl.t, Math.min(b, tl.t + 10)];
+    setRange([fmtTime(r[0]), fmtTime(r[1])]);
+  };
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [result, setResult] = useState<{ path: string; bytes: number; frames: number; encoder?: string } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -48,10 +57,7 @@ export function ExportDialog() {
   useEffect(() => {
     if (!open) return;
     setSel(exportSources().filter((s) => isShown(s.content())).map((s) => s.id));
-    const tl = useTimeline.getState();
-    const [, b] = timeDomain();
-    const r = tl.range ?? [tl.t, Math.min(b, tl.t + 10)];
-    setRange([fmtTime(r[0]), fmtTime(r[1])]);
+    applyCrop(!!useTimeline.getState().crop);
     const withAudio = useMedia.getState().order.find((id) => useMedia.getState().videos[id]?.audio && streamSolution(id)?.status !== 'unsynced');
     setAudio(withAudio ?? '');
     setResult(null); setErr(null); setProgress(null);
@@ -139,6 +145,7 @@ export function ExportDialog() {
               →
               <input value={range[1]} onChange={(e) => setRange([range[0], e.target.value])} aria-label="Export end" style={{ width: 90 }} className={t1 === null ? 'bad' : ''} />
               <span className="muted">{dur > 0 ? `${dur.toFixed(2)} s` : 'end must be after start'}</span>
+              {crop && <label className="chk"><input type="checkbox" checked={useCrop} onChange={(e) => applyCrop(e.target.checked)} aria-label="Crop to range" /> Crop to range</label>}
             </div>
             <div className="ex-row"><b>Format</b>
               <label className="chk"><input type="radio" name="ex-format" checked={effFormat === 'mp4'} onChange={() => setFormat('mp4')} /> MP4 (H.264)</label>

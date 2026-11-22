@@ -26,6 +26,8 @@ interface SyncState {
   removeMarker: (stream: string, eventId: string) => void;
   setOptions: (stream: string, o: StreamOptions) => void;
   setReference: (stream: string) => void;
+  /** Drops a removed stream's markers and options. */
+  forgetStream: (stream: string) => void;
 }
 
 /** All stream ids: logs first (in load order), then videos. */
@@ -75,6 +77,11 @@ export const useSync = create<SyncState>((set, get) => {
     removeMarker: (stream, eventId) => update({ markers: { ...get().markers, [stream]: (get().markers[stream] ?? []).filter((m) => m.eventId !== eventId) } }),
     setOptions: (stream, o) => update({ options: { ...get().options, [stream]: { ...get().options[stream], ...o } } }),
     setReference: (stream) => update({ reference: stream }),
+    forgetStream: (stream) => {
+      const { [stream]: _m, ...markers } = get().markers;
+      const { [stream]: _o, ...options } = get().options;
+      update({ markers, options, reference: get().reference === stream ? null : get().reference });
+    },
   };
 });
 

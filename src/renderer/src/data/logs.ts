@@ -131,3 +131,13 @@ export function primaryLog(): LogStream | undefined {
   const s = useLogs.getState();
   return s.order.map((id) => s.logs[id]!).find((l) => l.status === 'ready');
 }
+
+/** Removes a log from the session and frees its parsed data in the worker. */
+export function closeLog(id: string): void {
+  for (const k of [...typeCache.keys()]) if (k.startsWith(`${id}|`)) typeCache.delete(k);
+  void call({ op: 'close', streamId: id }).catch(() => undefined);
+  useLogs.setState((s) => {
+    const { [id]: _gone, ...logs } = s.logs;
+    return { logs, order: s.order.filter((x) => x !== id) };
+  });
+}

@@ -21,7 +21,7 @@ const num = (v: number) => (Number.isNaN(v) ? '–' : Math.abs(v) >= 1000 ? v.to
 const colName = (r: ResolvedSeries) => `${r.label}${r.data?.unit ? ` [${r.data.unit}]` : ''}`;
 
 /** Mean / std dev / min / max per series over the global selection (raw samples, not decimated). */
-export function StatsTable({ series, range }: { series: ResolvedSeries[]; range: [number, number] }) {
+export function StatsTable({ series, range, caption }: { series: ResolvedSeries[]; range: [number, number]; caption?: string }) {
   const rows = series.map((r) => ({ r, s: rangeStats(r.data!, range[0], range[1]) }));
   const copy = () => {
     const head = ['series', 'unit', 'mean', 'std', 'min', 't_min', 'max', 't_max', 'n'].join('\t');
@@ -32,7 +32,7 @@ export function StatsTable({ series, range }: { series: ResolvedSeries[]; range:
     <div className="stats">
       <table>
         <thead>
-          <tr><th>Series</th><th>Mean</th><th>Std dev</th><th>Min</th><th>Max (peak)</th><th>Samples</th><th><button onClick={copy} title="Copy as tab-separated text">Copy</button></th></tr>
+          <tr><th title={caption ? `${caption} ${fmtTime(range[0])} → ${fmtTime(range[1])}` : undefined}>{caption ? `${caption} stats` : 'Series'}</th><th>Mean</th><th>Std dev</th><th>Min</th><th>Max (peak)</th><th>Samples</th><th><button onClick={copy} title="Copy as tab-separated text">Copy</button></th></tr>
         </thead>
         <tbody>
           {rows.map(({ r, s }) => (
@@ -52,7 +52,12 @@ export function StatsTable({ series, range }: { series: ResolvedSeries[]; range:
   );
 }
 
-export function ExportDialog({ series, range, logName, onClose }: { series: ResolvedSeries[]; range: [number, number]; logName: string; onClose: () => void }) {
+export function ExportDialog({ series, selection, crop, logName, onClose }: { series: ResolvedSeries[]; selection: [number, number] | null; crop: [number, number] | null; logName: string; onClose: () => void }) {
+  // "Crop to range": export exactly the workspace crop; otherwise the selection, or everything.
+  const [useCrop, setUseCrop] = useState(!!crop);
+  const all: [number, number] = [Math.min(...series.map((r) => r.data!.t[0]!)), Math.max(...series.map((r) => r.data!.t[r.data!.t.length - 1]!))];
+  const range: [number, number] = useCrop && crop ? crop : selection ?? all;
+  const what = useCrop && crop ? 'crop range' : selection ? 'selection' : 'whole log';
   const [kind, setKind] = useState<TimeBase['kind']>('fastest');
   const [hz, setHz] = useState(50);
   const [status, setStatus] = useState('');
@@ -66,8 +71,9 @@ export function ExportDialog({ series, range, logName, onClose }: { series: Reso
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-label="Export CSV">
-        <h3>Export selection as CSV</h3>
-        <p className="muted">{fmtTime(range[0])} → {fmtTime(range[1])} · {series.length} column(s) plus <code>time_s</code></p>
+        <h3>Export as CSV</h3>
+        {crop && <label className="chk"><input type="checkbox" checked={useCrop} onChange={(e) => setUseCrop(e.target.checked)} aria-label="Crop to range" /> Crop to range ({fmtTime(crop[0])} → {fmtTime(crop[1])})</label>}
+        <p className="muted">{what}: {fmtTime(range[0])} → {fmtTime(range[1])} · {series.length} column(s) plus <code>time_s</code></p>
         <label className="radio"><input type="radio" checked={kind === 'fastest'} onChange={() => setKind('fastest')} /> Timestamps of the fastest series (others interpolated)</label>
         <label className="radio"><input type="radio" checked={kind === 'fixed'} onChange={() => setKind('fixed')} /> Fixed rate <input type="number" min={0.1} max={10000} value={hz} onChange={(e) => setHz(Number(e.target.value))} style={{ width: 70 }} /> Hz</label>
         <label className="radio"><input type="radio" checked={kind === 'union'} onChange={() => setKind('union')} /> Every timestamp from every series</label>

@@ -6,6 +6,7 @@ import { useTimeline } from '../data/timeline';
 import { drawOverlays } from '../overlay/draw';
 import { useOverlays } from '../overlay/model';
 import { H264Sink } from '../video/h264';
+import { encodeAac } from '../video/aac';
 import { exportSource, isShown, setExporting } from './registry';
 import { startExportReaders, stopExportReaders } from './videoDraw';
 
@@ -158,10 +159,17 @@ export async function runExport(o: ExportOptions, out: string, onProgress: (p: E
       let srcPath = '';
       if (o.audio) {
         const src = mediaSource(o.audio);
-        const tables = src ? await src.muxSource() : null;
-        if (tables?.audio) {
+        const L0 = masterToLocal(o.audio, o.t0), L1 = masterToLocal(o.audio, o.t1);
+        const pcm = src?.hasPcmAudio ? await src.pcmRange(L0, L1) : null;
+        const tables = src && !src.hasPcmAudio ? await src.muxSource() : null;
+        if (pcm) {
+          // Uncompressed camera audio: encode to AAC and append it to the temp file after the video.
+          const aac = await encodeAac(pcm.planes, pcm.rate);
+          await window.huskylog.packTempWrite(temp, aac.bytes);
+          tracks.push({ ...aac.track, shift: pcm.start - L0 - aac.delay });
+          runs.push({ from: 'enc', offset: sink.bytes, size: aac.bytes.length });
+        } else if (tables?.audio) {
           // Output time 0 = master t0 = local L0 of that video.
-          const L0 = masterToLocal(o.audio, o.t0), L1 = masterToLocal(o.audio, o.t1);
           const a = copyAudioTrack(tables.audio, L0, L0, L1);
           if (a) { tracks.push(a.track); runs.push(...a.runs); srcPath = useMedia.getState().videos[o.audio]!.path; }
         }

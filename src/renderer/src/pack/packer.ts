@@ -8,6 +8,7 @@ import { useTimeline } from '../data/timeline';
 import { loadTrack } from '../data/track';
 import { captureWorkspace, useSession } from '../data/workspace';
 import { reencodeVideo } from '../video/encode';
+import { encodeAac } from '../video/aac';
 
 /**
  * Pack & Go (DESIGN §11.2). The renderer plans each entry (it knows the sync
@@ -123,10 +124,19 @@ export async function packAndGo(out: string, mode: VideoMode, includeMaps: boole
     const tables = await src.muxSource();
     if (!tables.video) throw new Error(`${v.name} has no video track`);
     let tracks: MuxTrack[], runs: Run[], tCut: number, enc: string | undefined;
+    // Uncompressed (PCM) camera audio: encode the kept range to AAC, appended to the temp file at `offset`.
+    const pcmAudio = async (t0: number, t1: number, cut: number, offset: number): Promise<{ track: MuxTrack; runs: Run[] } | null> => {
+      const pcm = src.hasPcmAudio ? await src.pcmRange(t0, t1) : null;
+      if (!pcm) return null;
+      const aac = await encodeAac(pcm.planes, pcm.rate);
+      enc ??= await window.huskylog.packTempCreate();
+      await window.huskylog.packTempWrite(enc, aac.bytes);
+      return { track: { ...aac.track, shift: pcm.start - cut - aac.delay }, runs: [{ from: 'enc', offset, size: aac.bytes.length }] };
+    };
     if (mode === 'trim') {
       const plan = planVideoTrim(tables.video, r[0], r[1]);
       const tv = trimVideoTrack(tables.video, plan.first, plan.last);
-      const audio = tables.audio ? copyAudioTrack(tables.audio, plan.tCut, r[0], r[1]) : null;
+      const audio = tables.audio ? copyAudioTrack(tables.audio, plan.tCut, r[0], r[1]) : await pcmAudio(r[0], r[1], plan.tCut, 0);
       tracks = [tv.track, ...(audio ? [audio.track] : [])];
       runs = [...tv.runs, ...(audio?.runs ?? [])];
       tCut = plan.tCut;
@@ -135,7 +145,7 @@ export async function packAndGo(out: string, mode: VideoMode, includeMaps: boole
       const id = enc;
       const res = await reencodeVideo(src, tables.video, r[0], r[1], async (b) => { await window.huskylog.packTempWrite(id, b); },
         (f) => onPhase({ phase: 'encoding', fraction: f, label: `Re-encoding ${v.name}` }), { signal });
-      const audio = tables.audio ? copyAudioTrack(tables.audio, res.tCut, res.firstPts, res.lastPts) : null;
+      const audio = tables.audio ? copyAudioTrack(tables.audio, res.tCut, res.firstPts, res.lastPts) : await pcmAudio(res.firstPts, res.lastPts, res.tCut, res.bytes);
       tracks = [res.track, ...(audio ? [audio.track] : [])];
       runs = [{ from: 'enc', offset: 0, size: res.bytes }, ...(audio?.runs ?? [])];
       tCut = res.tCut;

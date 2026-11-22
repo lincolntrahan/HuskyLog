@@ -1219,3 +1219,48 @@ machine's state.
   load at some points in a flight (0.8 fps seen).
 - On-screen digital zoom of 4K video uses the 1920 px cached frames. Export
   still uses full resolution.
+
+## Appendix K. Team requests, part 1: v0.1.3 (2026-11-22)
+
+**PCM camera audio.** Some cameras (the team's `REC_*.MOV` files) record
+uncompressed 16-bit PCM (`sowt`). WebCodecs can't decode it, and mp4box neither
+recognises the QuickTime sound description nor copes with the sample table: it
+listed every audio frame as a sample. On a 7.5 min clip that meant 14.5 M
+entries, 3.1 GB of memory and 12.6 s to open. HuskyLog showed "no audio".
+- mp4box now skips PCM tracks (`buildTrakSampleLists` is overridden per file).
+- `video/pcm.ts` reads the sound description (QuickTime v0/v1/v2), the chunk
+  table, and decodes 8/16/24/32-bit integer and 32/64-bit float PCM.
+- Waveform and sync work. Export and Pack & Go encode the audio to AAC
+  (`video/aac.ts`): it is resampled to 48 kHz, since the platform encoder
+  doesn't take 32 kHz.
+- The encoder adds no priming delay; a 1024-sample correction made audio
+  21 ms early. Exported audio is within 1 ms of the source.
+- Live playback already handled PCM (the native video element decodes it).
+
+**Removing streams.** A × on each Import row, and on missing-file rows, with a
+confirm dialog. Removal drops the stream's markers and options, and its graph
+lines (graphs listen to `useRemoved`). Readouts bound to it fall back to the
+main log. Worker and decoder memory is freed, and the file can be added again.
+
+**Horizon for backward cameras.** Horizon overlays get "Camera faces:
+forward / backward". Backward negates roll and pitch and adds 180° to the
+heading (`forCamera`).
+
+**Workspace crop.**
+- Right-drag on the timeline bar or a graph sets `crop`, and `timeDomain()`
+  returns it. The scrubber, playback, Home/End, graph domains (with their zoom
+  reset), the 3D map trail and export defaults follow.
+- A "Cropped a → b ×" pill clears it. The crop is saved in the workspace
+  (`ui.crop`).
+- Graph legends show each line's average over the crop. With no selection,
+  the stats table covers the crop.
+- Video and CSV export dialogs get a "Crop to range" checkbox, ticked by
+  default when a crop is set.
+
+**Verified:** `scripts/e2e-features.mjs` (16 checks) covers PCM recognition,
+the waveform beep at the flash (−4.3 ms), the AAC export and its sync (−5 ms),
+removing a video and a log (with markers, graph line and readout), re-adding,
+the horizon mirroring (slope −64 px forward / +65 px backward at a 30° bank),
+right-drag crop on the timeline and the graph, the legend average against an
+independent mean, both export checkboxes, saving and clearing.
+Phases 1, 4, 6 and 7 pass. Unit tests pass.

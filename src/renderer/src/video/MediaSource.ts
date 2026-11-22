@@ -2,6 +2,7 @@ import { createFile, MP4BoxBuffer, DataStream } from 'mp4box';
 import type { SrcTrack } from '@core/pack/mp4mux';
 import { srcTrack, type Mp4Like } from '@core/pack/mp4src';
 import { drawScaled, releaseScratch } from './scale';
+import { decodePcm, parseSoundDescription, pcmChunks, pcmReadRuns, PCM_TYPES, type PcmTrack } from './pcm';
 
 /**
  * Random access to MP4/MOV video and audio without loading the file:
@@ -50,6 +51,8 @@ export class MediaSource {
   private aSamples: Sample[] = [];
   private aShift = 0;
   private aConfig: AudioDecoderConfig | null = null;
+  /** Uncompressed audio track (read here, not by mp4box or WebCodecs). */
+  private pcm: PcmTrack | null = null;
   private cache = new Map<number, ImageBitmap>();
   private cacheOrder: number[] = [];
   /** Scrub cache budget per video (decoded RGBA bitmaps are large: 4K ≈ 33 MB each). */
@@ -84,6 +87,15 @@ export class MediaSource {
     file.onReady = (i) => { info = i; };
     let err: unknown = null;
     file.onError = (e: unknown) => { err = e; };
+    // Don't let mp4box list every frame of a PCM track as its own sample (see pcm.ts).
+    const f = file as unknown as { buildTrakSampleLists(t: unknown): void };
+    const build = f.buildTrakSampleLists.bind(file);
+    f.buildTrakSampleLists = (t: unknown) => {
+      const tr = t as { mdia?: { minf?: { stbl?: { stsd?: { entries?: { type?: string }[] } } } }; samples: unknown[]; samples_duration: number; samples_size: number };
+      const type = tr.mdia?.minf?.stbl?.stsd?.entries?.[0]?.type;
+      if (type && PCM_TYPES.has(type)) { tr.samples = []; tr.samples_duration = 0; tr.samples_size = 0; return; }
+      build(t);
+    };
     let pos = 0;
     const CHUNK = 1 << 20;
     while (!info && pos < this.size && !err) {
@@ -124,8 +136,13 @@ export class MediaSource {
         fpsAvg: endS > startS ? (n - 1) / (endS - startS) : 0, vfr: maxD - minD > 1000, supported: !!support.supported, startS, endS,
       };
     }
-    const at = mi.audioTracks[0];
-    if (at?.audio) {
+    const pcmTrak = this.findPcmTrack();
+    const at = pcmTrak ? undefined : mi.audioTracks[0];
+    if (pcmTrak) {
+      this.pcm = pcmTrak;
+      const f = pcmTrak.fmt;
+      this.audio = { codec: `pcm_${f.float ? 'f' : f.unsigned ? 'u' : 's'}${f.bits}${f.bits > 8 ? (f.little ? 'le' : 'be') : ''}`, sampleRate: f.sampleRate, channels: f.channels, samples: pcmTrak.frames, supported: true };
+    } else if (at?.audio) {
       const trak = file.getTrackById(at.id) as unknown as Trak;
       this.aSamples = trak.samples.map((s) => ({ offset: s.offset, size: s.size, cts: s.cts, duration: s.duration, isSync: true, timescale: s.timescale }));
       this.aShift = editShiftUs(file, trak);
@@ -135,6 +152,49 @@ export class MediaSource {
       this.audio = { codec: at.codec, sampleRate: at.audio.sample_rate, channels: at.audio.channel_count, samples: this.aSamples.length, supported: !!support.supported };
     }
   }
+
+  /** The first sound track if it holds uncompressed PCM. */
+  private findPcmTrack(): (PcmTrack & { trak?: unknown }) | null {
+    const traks = (this.file as unknown as { moov?: { traks?: unknown[] } }).moov?.traks ?? [];
+    for (const t of traks) {
+      const tr = t as Trak & { mdia: { hdlr?: { handler?: string }; mdhd: { timescale: number }; minf: { stbl: Parameters<typeof pcmChunks>[0] & { stsd: { entries: { type: string; data?: Uint8Array }[] } } } } };
+      if (tr.mdia?.hdlr?.handler !== 'soun') continue;
+      const e = tr.mdia.minf.stbl.stsd.entries[0];
+      if (!e || !PCM_TYPES.has(e.type)) return null;
+      const fmt = e.data ? parseSoundDescription(e.type, e.data instanceof Uint8Array ? e.data : new Uint8Array(e.data)) : null;
+      if (!fmt) return null;
+      const { chunks, frames } = pcmChunks(tr.mdia.minf.stbl);
+      const ts = tr.mdia.mdhd.timescale || fmt.sampleRate;
+      const delta = tr.mdia.minf.stbl.stts?.sample_deltas?.[0] ?? 1;
+      return { fmt, chunks, frames, frameDur: delta / ts, start: editShiftUs(this.file, tr) / 1e6 };
+    }
+    return null;
+  }
+
+  /**
+   * Uncompressed audio for local times [t0, t1] (seconds), one Float32Array per
+   * channel, and the local time of its first frame. Null without a PCM track.
+   */
+  async pcmRange(t0: number, t1: number): Promise<{ rate: number; start: number; planes: Float32Array[] } | null> {
+    const p = this.pcm;
+    if (!p) return null;
+    const first = Math.max(0, Math.floor((t0 - p.start) / p.frameDur)), last = Math.min(p.frames - 1, Math.ceil((t1 - p.start) / p.frameDur));
+    if (last < first) return null;
+    const n = last - first + 1;
+    const planes = Array.from({ length: p.fmt.channels }, () => new Float32Array(n));
+    for (const run of pcmReadRuns(p, first, last)) {
+      const buf = new Uint8Array(await this.read(run.start, run.end));
+      for (const c of run.chunks) {
+        const dec = decodePcm(buf.subarray(c.offset - run.start, c.offset - run.start + c.frames * p.fmt.bytesPerFrame), p.fmt, c.frames);
+        const a = Math.max(first, c.first), b = Math.min(last, c.first + c.frames - 1);
+        for (let ch = 0; ch < planes.length; ch++) planes[ch]!.set(dec[ch]!.subarray(a - c.first, b - c.first + 1), a - first);
+      }
+    }
+    return { rate: 1 / p.frameDur, start: p.start + first * p.frameDur, planes };
+  }
+
+  /** True when the audio is uncompressed PCM (export converts it to AAC). */
+  get hasPcmAudio() { return !!this.pcm; }
 
   get frameCount() { return this.pres.length; }
 
@@ -249,6 +309,7 @@ export class MediaSource {
   }
 
   private async decodeWaveform(bps: number): Promise<Waveform | null> {
+    if (this.pcm) return this.pcmWaveform(bps);
     if (!this.audio?.supported || !this.aConfig || !this.aSamples.length) return null;
     const ss = this.aSamples;
     const t0 = (ss[0]!.cts / ss[0]!.timescale) + this.aShift / 1e6;
@@ -301,6 +362,36 @@ export class MediaSource {
   /** What FrameReader needs: samples in decode order, edit shift, decoder config, reads. */
   readerInput() {
     return { samples: this.vSamples, pres: this.pres, shiftUs: this.vShift, config: this.vConfig, read: (a: number, b: number) => this.read(a, b), indexAt: (t: number) => this.indexAt(t) };
+  }
+
+  /** Waveform of a PCM track, read in runs of nearby chunks. */
+  private async pcmWaveform(bps: number): Promise<Waveform | null> {
+    const p = this.pcm!;
+    if (!p.frames) return null;
+    const dur = p.frames * p.frameDur;
+    const n = Math.ceil(dur * bps) + 1;
+    const min = new Float32Array(n), max = new Float32Array(n), sumSq = new Float64Array(n), cnt = new Uint32Array(n);
+    const framesPerBin = 1 / (p.frameDur * bps);
+    for (const run of pcmReadRuns(p, 0, p.frames - 1)) {
+      const buf = new Uint8Array(await this.read(run.start, run.end));
+      for (const c of run.chunks) {
+        const planes = decodePcm(buf.subarray(c.offset - run.start, c.offset - run.start + c.frames * p.fmt.bytesPerFrame), p.fmt, c.frames);
+        const ch0 = planes[0]!;
+        for (let k = 0; k < c.frames; k++) {
+          let v = ch0[k]!;
+          for (let ch = 1; ch < planes.length; ch++) v += planes[ch]![k]!;
+          v /= planes.length;
+          const b = Math.floor((c.first + k) / framesPerBin);
+          if (b >= n) break;
+          if (v < min[b]!) min[b] = v;
+          if (v > max[b]!) max[b] = v;
+          sumSq[b] = sumSq[b]! + v * v; cnt[b] = cnt[b]! + 1;
+        }
+      }
+    }
+    const rms = new Float32Array(n);
+    for (let b = 0; b < n; b++) rms[b] = cnt[b] ? Math.sqrt(sumSq[b]! / cnt[b]!) : 0;
+    return { start: p.start, binDt: 1 / bps, min, max, rms };
   }
 
   /** Decoder config of the video track (re-encode in Pack & Go). */
