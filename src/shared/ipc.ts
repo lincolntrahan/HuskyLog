@@ -160,6 +160,10 @@ export interface WorkspaceApi {
   exportPickPath(defaultName: string, kind: 'mp4' | 'gif'): Promise<string | null>;
   exportWriteFile(path: string, data: Uint8Array): Promise<number>;
   exportWriteMp4(path: string, spec: { src: string; enc?: string; head: Uint8Array; moov: Uint8Array; runs: PackRun[] }): Promise<number>;
+  /** Compressed copy of an opened video: "NAME.huskylog.mp4" beside it (never an existing file). Write it with exportWriteMp4. */
+  compressTarget(srcPath: string): Promise<string>;
+  /** Opens a compressed copy written with compressTarget + exportWriteMp4. */
+  compressOpen(path: string): Promise<OpenedFile>;
 }
 
 export const WS_IPC = {
@@ -167,6 +171,7 @@ export const WS_IPC = {
   pickPack: 'pack:pick', tempCreate: 'pack:temp-create', tempWrite: 'pack:temp-write', write: 'pack:write', cancel: 'pack:cancel',
   setDirty: 'ws:set-dirty', saved: 'ws:saved-before-close', e2e: 'ws:e2e-dialogs',
   exportPick: 'export:pick', exportWriteFile: 'export:write-file', exportWriteMp4: 'export:write-mp4',
+  compressTarget: 'compress:target', compressOpen: 'compress:open',
 } as const;
 
 // ---- Updates (electron-updater, GitHub Releases) ----

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { IDockviewPanelProps } from 'dockview-react';
 import { OverlayLayer } from '../overlay/OverlayLayer';
 import { isExporting, registerExportSource } from '../export/registry';
-import { drawVideoAt } from '../export/videoDraw';
+import { drawPicture, drawVideoAt } from '../export/videoDraw';
+import { adjustedSize, isIdentity } from '@core/video/adjust';
 import { useOverlays, type OverlayItem } from '../overlay/model';
 import { NO_ZOOM, panBy, zoomAt, zoomTransform, type VideoZoom } from '@core/overlay/zoom';
 import { useMedia, mediaSource } from '../data/media';
@@ -87,6 +88,10 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
   useEffect(() => { if (!cfg.stream && newest) setCfg({ ...cfg, stream: newest }); }, [newest]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const v = stream ? media.videos[stream] : undefined;
+  const adjRef = useRef(v?.adjust);
+  adjRef.current = v?.adjust;
+  const adjusted = !isIdentity(v?.adjust);
+  const isPlaying = useTimeline((s) => s.playing);
   const status = stream ? sol.streams[stream]?.status ?? 'unsynced' : 'unsynced';
 
   useEffect(() => {
@@ -99,18 +104,36 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
     let wanted = -1, drawn = -1, busy = false, lastLocal = NaN;
     const d = ((window.__hl as Record<string, unknown>)[`video:${api.id}`] = { local: NaN, index: -1, showing: 'canvas', overlay: null as string | null, drawn: -1 });
 
+    // Draws a frame (bitmap or the playing <video>) into the canvas, at the adjusted picture's size.
+    const paint = (img: CanvasImageSource, iw: number, ih: number, rot: number) => {
+      const size = adjustedSize(iw, ih, rot, adjRef.current ?? { rot: 0, flipH: false, flipV: false, fine: 0, crop: { x: 0, y: 0, w: 1, h: 1 } });
+      const sw = Math.max(2, Math.round(size.w)), sh = Math.max(2, Math.round(size.h));
+      if (canvas.width !== sw || canvas.height !== sh) { canvas.width = sw; canvas.height = sh; }
+      const ctx = canvas.getContext('2d')!;
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, sw, sh);
+      drawPicture(ctx, `panel:${api.id}`, img, iw, ih, rot, adjRef.current, sw, sh);
+    };
+    // Playing with adjustments: paint every presented video frame into the canvas.
+    let painting = false;
+    const paintLoop = () => {
+      if (!painting) return;
+      if (video.videoWidth) {
+        // Chromium may already apply the file rotation to the element's frames.
+        const applied = vi.rotation % 180 !== 0 && video.videoWidth === vi.height && video.videoHeight === vi.width;
+        paint(video, video.videoWidth, video.videoHeight, applied ? 0 : vi.rotation);
+      }
+      video.requestVideoFrameCallback(paintLoop);
+    };
+    const startPaint = () => { if (!painting) { painting = true; video.requestVideoFrameCallback(paintLoop); } };
+    const stopPaint = () => { painting = false; };
+
     const drawFrame = async () => {
       if (busy || wanted === drawn || wanted < 0) return;
       busy = true;
       const target = wanted;
       try {
         const bmp = await src.frame(target);
-        const rot = vi.rotation;
-        const sw = rot % 180 ? bmp.height : bmp.width, sh = rot % 180 ? bmp.width : bmp.height;
-        if (canvas.width !== sw || canvas.height !== sh) { canvas.width = sw; canvas.height = sh; }
-        const ctx = canvas.getContext('2d')!;
-        ctx.save(); ctx.translate(sw / 2, sh / 2); ctx.rotate((rot * Math.PI) / 180);
-        ctx.drawImage(bmp, -bmp.width / 2, -bmp.height / 2); ctx.restore();
+        paint(bmp, bmp.width, bmp.height, vi.rotation);
         drawn = target;
         d.drawn = target;
       } catch { /* undecodable frame: leave the last one */ }
@@ -145,9 +168,11 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
         if (Math.abs(video.playbackRate - rate) > 1e-6) video.playbackRate = rate;
         if (video.paused) { video.currentTime = local; void video.play().catch(() => undefined); }
         else if (Math.abs(video.currentTime - local) > 1 / fps) video.currentTime = local; // re-lock beyond 1 frame
-        setShowing('video'); d.showing = 'video';
+        if (isIdentity(adjRef.current)) { stopPaint(); setShowing('video'); d.showing = 'video'; }
+        else { startPaint(); setShowing('canvas'); d.showing = 'canvas'; }
       } else {
         if (!video.paused) video.pause();
+        stopPaint();
         setShowing('canvas'); d.showing = 'canvas';
         if (local !== lastLocal) {
           wanted = src.indexAt(local);
@@ -161,8 +186,8 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
     update();
     const unsubT = useTimeline.subscribe(update);
     const unsubS = useSync.subscribe(update);
-    return () => { unsubT(); unsubS(); video.pause(); };
-  }, [stream, v?.status, cfg.muted, api.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { unsubT(); unsubS(); stopPaint(); video.pause(); };
+  }, [stream, v?.status, cfg.muted, api.id, v?.adjust]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rot = v?.video?.rotation ?? 0;
   return (
@@ -179,7 +204,10 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
       <div className={`video-stage${cfg.zoom ? ' zoomed' : ''}`} ref={stageRef}>
         <div className="video-zoom" style={{ transform: zoomTransform(zoom) }}>
           <canvas ref={canvasRef} style={{ display: showing === 'canvas' ? 'block' : 'none' }} />
-          <video ref={videoRef} playsInline preload="auto" style={{ display: showing === 'video' ? 'block' : 'none', transform: rot ? `rotate(${rot}deg)` : undefined }} />
+          <video ref={videoRef} crossOrigin="anonymous" playsInline preload="auto" style={adjusted
+            // Adjusted: the canvas shows the picture; the element keeps playing (transparent) so frame callbacks keep coming.
+            ? { display: showing === 'video' || isPlaying ? 'block' : 'none', position: 'absolute', inset: 0, opacity: 0, pointerEvents: 'none' }
+            : { display: showing === 'video' ? 'block' : 'none', transform: rot ? `rotate(${rot}deg)` : undefined }} />
         </div>
         {!stream && <div className="placeholder">Import a video on the Import tab.</div>}
         {stream && overlay && <div className="placeholder video-overlay">{overlay}</div>}

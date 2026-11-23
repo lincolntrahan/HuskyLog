@@ -5,6 +5,7 @@ import {
 import type { OpenedFile, OpenedSession, SaveStream } from '../../../shared/ipc';
 import { openLog, useLogs } from './logs';
 import { openVideo, useMedia } from './media';
+import { parseAdjust } from '@core/video/adjust';
 import { restoreSync, useSync } from './sync';
 import { useExpressions } from './expressions';
 import { useTimeline } from './timeline';
@@ -16,7 +17,7 @@ import { syncWindowCounter, whenDockReady } from '../tabs/ReviewTab';
  * The current session (DESIGN §11): what was opened, whether it has unsaved
  * changes, and capture/restore of everything a workspace holds.
  */
-export interface MissingStream { id: string; kind: 'log' | 'video'; name: string; ref: FileRef }
+export interface MissingStream { id: string; kind: 'log' | 'video'; name: string; ref: FileRef; adjust?: unknown; original?: FileRef }
 
 interface SessionState {
   kind: 'none' | 'hlws' | 'hlpack';
@@ -45,8 +46,8 @@ export function captureWorkspace(): Workspace {
   const logs = useLogs.getState(), media = useMedia.getState(), sync = useSync.getState(), tl = useTimeline.getState();
   const streams: WorkspaceStream[] = [
     ...logs.order.map((id) => logs.logs[id]!).filter((l) => l.status !== 'error').map((l) => ({ id: l.id, kind: 'log' as const, name: l.name, file: { name: l.path.replace(/^.*[\\/]/, ''), size: l.size ?? 0, path: l.path } })),
-    ...media.order.map((id) => media.videos[id]!).filter((v) => v.status !== 'error').map((v) => ({ id: v.id, kind: 'video' as const, name: v.name, file: { name: v.path.replace(/^.*[\\/]/, ''), size: v.size, path: v.path } })),
-    ...useSession.getState().missing.map((m) => ({ id: m.id, kind: m.kind, name: m.name, file: m.ref })),
+    ...media.order.map((id) => media.videos[id]!).filter((v) => v.status !== 'error').map((v) => ({ id: v.id, kind: 'video' as const, name: v.name, file: { name: v.path.replace(/^.*[\\/]/, ''), size: v.size, path: v.path }, ...(v.adjust ? { adjust: v.adjust } : {}), ...(v.original ? { original: v.original } : {}) })),
+    ...useSession.getState().missing.map((m) => ({ id: m.id, kind: m.kind, name: m.name, file: m.ref, ...(m.adjust ? { adjust: m.adjust } : {}), ...(m.original ? { original: m.original } : {}) })),
   ];
   return {
     format: WORKSPACE_FORMAT, version: WORKSPACE_VERSION, app: '', saved: '',
@@ -74,7 +75,7 @@ export function saveStreams(ws: Workspace = captureWorkspace()): SaveStream[] {
 function openStream(s: WorkspaceStream, f: OpenedFile): void {
   useApp.setState((a) => ({ files: [...a.files.filter((x) => x.path !== f.path), f] }));
   if (s.kind === 'log') void openLog(f, { id: s.id, name: s.name });
-  else void openVideo(f, { id: s.id, name: s.name });
+  else void openVideo(f, { id: s.id, name: s.name, adjust: parseAdjust(s.adjust), original: s.original });
 }
 
 /** Restores a session handed over by main at startup. */
@@ -85,7 +86,7 @@ export async function applySession(session: OpenedSession): Promise<void> {
   const missing: MissingStream[] = [];
   for (const s of ws.streams) {
     const f = session.files[s.id];
-    if (f) openStream(s, f); else missing.push({ id: s.id, kind: s.kind, name: s.name, ref: s.file });
+    if (f) openStream(s, f); else missing.push({ id: s.id, kind: s.kind, name: s.name, ref: s.file, adjust: s.adjust, original: s.original });
   }
   restoreSync(ws.sync);
   useOverlays.setState({ byWindow: {}, editing: null, selected: null });
@@ -112,7 +113,7 @@ export function provideMissing(id: string, f: OpenedFile): void {
   const m = useSession.getState().missing.find((x) => x.id === id);
   if (!m) return;
   useSession.setState((s) => ({ missing: s.missing.filter((x) => x.id !== id) }));
-  openStream({ id: m.id, kind: m.kind, name: m.name, file: m.ref }, f);
+  openStream({ id: m.id, kind: m.kind, name: m.name, file: m.ref, adjust: m.adjust, original: m.original }, f);
 }
 
 // ---------------------------------------------------------------- saving
@@ -141,7 +142,12 @@ function settle(): void {
   const check = () => {
     const loading = Object.values(useLogs.getState().logs).some((l) => l.status === 'loading') || Object.values(useMedia.getState().videos).some((v) => v.status === 'loading');
     if (loading) { settleTimer = window.setTimeout(check, 200); return; }
-    settleTimer = window.setTimeout(() => useSession.setState({ savedKey: contentKey(captureWorkspace()), dirty: false }), 800);
+    settleTimer = window.setTimeout(() => {
+      // Files added during the wait (e.g. right after startup) belong to the starting state too.
+      const busy = Object.values(useLogs.getState().logs).some((l) => l.status === 'loading') || Object.values(useMedia.getState().videos).some((v) => v.status === 'loading');
+      if (busy) { check(); return; }
+      useSession.setState({ savedKey: contentKey(captureWorkspace()), dirty: false });
+    }, 800);
   };
   check();
 }

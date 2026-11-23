@@ -4,6 +4,7 @@ import { masterToLocal, streamSolution } from '../data/sync';
 import { fmtTime } from '../data/timeline';
 import { FrameReader } from '../video/FrameReader';
 import { shrink } from '../video/scale';
+import { adjustedSize, applyAdjust, fitBox, isIdentity, NO_ADJUST, type VideoAdjust } from '@core/video/adjust';
 import { drawMessage } from './registry';
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -62,20 +63,32 @@ export async function drawVideoAt(ctx: Ctx, stream: string | undefined, zoom: Vi
   ctx.save();
   // Digital zoom: the crop (zoom.x·w, zoom.y·h, w/s, h/s) of the letterboxed stage, scaled to fill.
   if (zoom && zoom.s > 1) { ctx.scale(zoom.s, zoom.s); ctx.translate(-zoom.x * w, -zoom.y * h); }
-  const rot = vi.rotation;
-  const dw = rot % 180 ? ih : iw, dh = rot % 180 ? iw : ih;
-  const s = Math.min(w / dw, h / dh);
-  ctx.translate(w / 2, h / 2);
-  ctx.rotate((rot * Math.PI) / 180);
+  drawPicture(ctx, `draw:${stream}`, img, iw, ih, vi.rotation, v.adjust, w, h, zoom && zoom.s > 1 ? zoom.s : 1);
+  ctx.restore();
+}
+
+/**
+ * Draws a decoded frame letterboxed into (0, 0, W, H): the file rotation and
+ * the video's adjustments (rotate, mirror, straighten, crop) applied, scaled
+ * with the halving chain. `zoomS`: extra magnification applied by the caller
+ * (so the chain keeps enough detail). Used by export, the Video window and the
+ * Sync preview, so they always agree.
+ */
+export function drawPicture(ctx: Ctx, key: string, img: CanvasImageSource, iw: number, ih: number, fileRot: number, adjust: VideoAdjust | undefined, W: number, H: number, zoomS = 1): void {
+  const a = adjust ?? NO_ADJUST;
+  const size = adjustedSize(iw, ih, fileRot, a);
+  const box = fitBox(size.w / size.h, W, H);
+  ctx.save();
+  if (!isIdentity(a)) { ctx.beginPath(); ctx.rect(box.x, box.y, box.w, box.h); ctx.clip(); }
+  const k = applyAdjust(ctx, iw, ih, fileRot, a, box.x, box.y, box.w, box.h);
   ctx.imageSmoothingEnabled = true;
   if (videoDrawOpts.mode === 'high') {
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(img, (-iw * s) / 2, (-ih * s) / 2, iw * s, ih * s);
+    ctx.drawImage(img, -iw / 2, -ih / 2, iw, ih);
   } else {
-    const z = zoom && zoom.s > 1 ? zoom.s : 1;
-    const sm = videoDrawOpts.mode === 'chain' ? shrink(`draw:${stream}`, img, iw, ih, iw * s * z, ih * s * z) : { src: img, w: iw, h: ih };
+    const sm = videoDrawOpts.mode === 'chain' ? shrink(key, img, iw, ih, iw * k * zoomS, ih * k * zoomS) : { src: img };
     ctx.imageSmoothingQuality = 'low';
-    ctx.drawImage(sm.src, (-iw * s) / 2, (-ih * s) / 2, iw * s, ih * s);
+    ctx.drawImage(sm.src, -iw / 2, -ih / 2, iw, ih);
   }
   ctx.restore();
 }

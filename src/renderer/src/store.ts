@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { OpenedFile } from '../../shared/ipc';
 import { isLogFile, openLog } from './data/logs';
 import { isVideoFile, openVideo } from './data/media';
+import { maybeAutoCompress } from './video/compress';
 
 export type AppTab = 'import' | 'sync' | 'review';
 
@@ -29,7 +30,7 @@ export const useApp = create<AppState>((set) => ({
     set((s) => ({ files: [...s.files, ...f.filter((n) => !s.files.some((o) => o.path === n.path))] }));
     for (const file of f) {
       if (isLogFile(file)) void openLog(file);
-      else if (isVideoFile(file)) void openVideo(file);
+      else if (isVideoFile(file)) void openVideo(file).then(() => maybeAutoCompress(file.path));
     }
   },
   cameras: {},

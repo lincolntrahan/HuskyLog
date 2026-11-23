@@ -10,7 +10,7 @@ import {
 import {
   candidatePaths, parseWorkspace, relativePath, stringifyWorkspace, WorkspaceError, type FileRef, type Workspace, type WorkspaceStream,
 } from '../core/workspace/workspace';
-import { allowFile, allowVirtual, virtualSource } from './hlFileProtocol';
+import { allowFile, allowVirtual, isAllowedFile, virtualSource } from './hlFileProtocol';
 import { extractEntry, readEntry, readZip, replaceEntries, ZipWriter, type ZipEntry } from './zip';
 import { invalidateAreas, mapsDir } from './mapCache';
 
@@ -391,6 +391,23 @@ export function registerExportIpc(): void {
     return p;
   });
   const allowed = (p: string) => exportTargets.has(resolve(p).toLowerCase());
+  // Compressed copies: next to an opened original, named by HuskyLog, never replacing a file.
+  const compressed = new Set<string>();
+  ipcMain.handle(WS_IPC.compressTarget, async (_e, srcPath: string) => {
+    if (!isAllowedFile(srcPath) || !/\.(mp4|mov|m4v)$/i.test(srcPath)) throw new Error('Not an opened video');
+    const abs = resolve(srcPath);
+    const base = join(dirname(abs), basename(abs).replace(/\.[^.]+$/, '').replace(/\.huskylog(-\d+)?$/i, ''));
+    let p = `${base}.huskylog.mp4`;
+    for (let n = 2; existsSync(p) || existsSync(`${p}.partial`); n++) p = `${base}.huskylog-${n}.mp4`;
+    exportTargets.add(p.toLowerCase());
+    compressed.add(p.toLowerCase());
+    return p;
+  });
+  ipcMain.handle(WS_IPC.compressOpen, async (_e, path: string) => {
+    const p = resolve(path);
+    if (!compressed.has(p.toLowerCase()) || !existsSync(p)) throw new Error('Not a compressed copy');
+    return allowFile(p);
+  });
   ipcMain.handle(WS_IPC.exportWriteFile, async (_e, path: string, data: Uint8Array) => {
     if (!allowed(path)) throw new Error('Not an export target');
     await writeFile(path, data);
