@@ -3,7 +3,7 @@ import { packEntryName, stringifyWorkspace, type Workspace } from '@core/workspa
 import type { MapArea, PackEntrySpec } from '../../../shared/ipc';
 import { useLogs } from '../data/logs';
 import { mediaSource, useMedia } from '../data/media';
-import { localToMaster, masterToLocal, streamSolution, referenceId } from '../data/sync';
+import { localToMaster, masterToLocal, streamSolution, referenceId, trimOf } from '../data/sync';
 import { useTimeline } from '../data/timeline';
 import { loadTrack } from '../data/track';
 import { captureWorkspace, useSession } from '../data/workspace';
@@ -39,7 +39,9 @@ export function trimRange(videoId: string): [number, number] | null {
   const range = trimBasis()?.range;
   if (!range) return null;
   const a = masterToLocal(videoId, range[0]) - TRIM_MARGIN, b = masterToLocal(videoId, range[1]) + TRIM_MARGIN;
-  const lo = Math.max(v.startS, a), hi = Math.min(v.endS, b);
+  // The stream's own trim (Sync tab) limits it further.
+  const tr = trimOf(videoId);
+  const lo = Math.max(v.startS, a, tr ? tr[0] : -Infinity), hi = Math.min(v.endS, b, tr ? tr[1] : Infinity);
   return hi > lo ? [lo, hi] : null;
 }
 
@@ -102,6 +104,7 @@ export async function packAndGo(out: string, mode: VideoMode, includeMaps: boole
   const logs = useLogs.getState(), media = useMedia.getState();
   const entries: PackEntrySpec[] = [];
   const markers = { ...ws.sync.markers };
+  const options = { ...ws.sync.options };
 
   for (const s of ws.streams) {
     if (signal.cancelled) throw new Error('Packing cancelled');
@@ -156,8 +159,10 @@ export async function packAndGo(out: string, mode: VideoMode, includeMaps: boole
     s.file = { name: fileName(mp4Name), size: mp4.fileSize, rel: mp4Name };
     // The new file starts tCut later: move this video's markers so sync stays exact.
     markers[s.id] = (markers[s.id] ?? []).map((m) => ({ ...m, t: m.t - tCut }));
+    const tr = options[s.id]?.trim;
+    if (tr) options[s.id] = { ...options[s.id], trim: [tr[0] - tCut, tr[1] - tCut] };
   }
-  ws.sync = { ...ws.sync, markers };
+  ws.sync = { ...ws.sync, markers, options };
   const areas = includeMaps ? await areasForFlights(await window.huskylog.mapAreas()) : [];
   ws.mapAreas = areas.map((a) => a.id);
   ws.app = ''; ws.saved = new Date().toISOString();

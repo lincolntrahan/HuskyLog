@@ -18,6 +18,7 @@ import { useExpressions, loadExpression } from '../data/expressions';
 import { fmtTime } from '../data/timeline';
 import { Lane, type LaneSignal } from '../sync/Lane';
 import { SourceMenu } from '../ui/SourceMenu';
+import { StepButtons } from '../ui/StepButtons';
 import { useApp } from '../store';
 import type { Waveform } from '../video/MediaSource';
 
@@ -236,21 +237,27 @@ export function SyncTab() {
   const onPreviewWheel = (e: React.WheelEvent) => { setPlaying(false); step(e.deltaY > 0 ? 1 : -1); };
 
   // ---- actions ----
-  const step = (dir: number, big = false) => {
+  /** Moves the cursor by n seconds, or n frames (video) / samples (log, of the highlighted channel). */
+  const stepBy = (unit: 's' | 'f', n: number) => {
     if (!sel || cursor === null) return;
+    setPlaying(false);
+    if (unit === 's') return setCursor(sel.id, cursor + n);
     if (sel.kind === 'video') {
       const src = mediaSource(sel.id)!;
-      if (big) return setCursor(sel.id, cursor + dir);
-      const i = Math.max(0, Math.min(src.frameCount - 1, src.indexAt(cursor) + dir));
+      const i = Math.max(0, Math.min(src.frameCount - 1, src.indexAt(cursor) + n));
       return setCursor(sel.id, src.ptsUs(i) / 1e6);
     }
-    const s = signals[sel.id]?.[snapIdx[sel.id] ?? 0] ?? signals[sel.id]?.[0];
-    if (!s || big) return setCursor(sel.id, cursor + dir * (big ? 1 : 0.01));
-    let lo = 0, hi = s.t.length - 1;
-    while (lo < hi) { const m = (lo + hi) >> 1; if (s.t[m]! < cursor) lo = m + 1; else hi = m; }
-    const i = Math.max(0, Math.min(s.t.length - 1, dir > 0 ? (s.t[lo]! > cursor + 1e-9 ? lo : lo + 1) : lo - 1));
-    setCursor(sel.id, s.t[i]!);
+    const sig = signals[sel.id]?.[snapIdx[sel.id] ?? 0] ?? signals[sel.id]?.[0];
+    if (!sig) return setCursor(sel.id, cursor + n * 0.01);
+    let lo = 0, hi = sig.t.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (sig.t[m]! < cursor) lo = m + 1; else hi = m; }
+    // lo: first sample at or after the cursor; a sample exactly on the cursor counts as "here".
+    const onSample = Math.abs(sig.t[lo]! - cursor) < 1e-9;
+    const base = n > 0 ? (onSample ? lo : lo - 1) : lo;
+    const i = Math.max(0, Math.min(sig.t.length - 1, base + n));
+    setCursor(sel.id, sig.t[i]!);
   };
+  const step = (dir: number, big = false) => stepBy(big ? 's' : 'f', dir);
   const snap = () => {
     if (!sel || cursor === null) return;
     let r: number | null = null;
@@ -274,6 +281,16 @@ export function SyncTab() {
     setActiveEvent(ev);
     sync.setMarker(sel.id, ev, cursor);
   };
+  // Trim: keep only part of a stream (its own time). Saved with the sync options.
+  const trim = sel ? sync.options[sel.id]?.trim ?? null : null;
+  const setTrimEdge = (edge: 0 | 1) => {
+    if (!sel || cursor === null) return;
+    const [a, b] = rangeOf(sel.id);
+    const cur = trim ?? [a, b];
+    const next: [number, number] = edge === 0 ? [cursor, Math.max(cursor + 0.1, cur[1])] : [Math.min(cur[0], cursor - 0.1), cursor];
+    sync.setOptions(sel.id, { trim: [Math.max(a, next[0]), Math.min(b, next[1])] });
+  };
+  const clearTrim = () => { if (sel) sync.setOptions(sel.id, { trim: undefined }); };
   const addEvent = () => {
     const name = newEvent.trim();
     if (!name) return;
@@ -302,7 +319,7 @@ export function SyncTab() {
     return () => window.removeEventListener('keydown', h);
   }, [appTab]);
 
-  (window.__hl as Record<string, unknown>)['sync'] = { setCursor, setSelected, place, snap, acceptSnap, setActiveEvent, step, getSuggest: () => suggest, getCursors: () => cursors, setPlaying, isPlaying: () => playing, setRate, setSound };
+  (window.__hl as Record<string, unknown>)['sync'] = { setCursor, setSelected, place, snap, acceptSnap, setActiveEvent, step, stepBy, getSuggest: () => suggest, getCursors: () => cursors, setPlaying, isPlaying: () => playing, setRate, setSound };
 
   const activeName = sync.events.find((e) => e.id === activeEvent)?.name ?? '';
   const selChannels = sel?.kind === 'log' ? laneChannels[sel.id] ?? [] : [];
@@ -317,11 +334,12 @@ export function SyncTab() {
   return (
     <div className="sync">
       <div className="sync-bar">
+        <span className="muted">View</span>
         <div className="seg">
           <button className={mode === 'local' ? 'primary' : ''} onClick={() => setMode('local')} title="Each lane scrubs in its own time">Local</button>
           <button className={mode === 'aligned' ? 'primary' : ''} onClick={() => { setMode('aligned'); setAlignedView(masterRange()); }} title="All lanes on the master timeline using the current solution">Aligned</button>
         </div>
-        <span className="muted">Events:</span>
+        <span className="muted">Events</span>
         {sync.events.map((e) => (
           <button key={e.id} className={`ev-chip${e.id === activeEvent ? ' on' : ''}`} style={{ borderColor: e.color }} onClick={() => setActiveEvent(e.id)}>
             <span className="dot" style={{ background: e.color }} />{e.name}
@@ -368,6 +386,7 @@ export function SyncTab() {
                   suggestion={suggest[st.id] ?? null}
                   selected={selected === st.id}
                   dim={mode === 'aligned' && status === 'unsynced' ? 'Not synced yet — place at least one shared event in Local mode' : null}
+                  trim={sync.options[st.id]?.trim ?? null}
                   toDisplay={mode === 'aligned' && s && status !== 'unsynced' ? (t) => toMaster(s, t) : undefined}
                   fromDisplay={mode === 'aligned' && s && status !== 'unsynced' ? (t) => toLocal(s, t) : undefined}
                   onSelect={() => setSelected(st.id)}
@@ -391,41 +410,55 @@ export function SyncTab() {
         <div className="sync-tools">
           {sel && (
             <>
-              <div className="row">
-                <b>{sel.name}</b>
-                <span className="mono">{cursor === null ? 'click or drag in a lane to set the cursor' : `cursor ${fmtTime(cursor)}`}</span>
-                {cursor !== null && sync.solution.streams[sel.id]?.status !== 'unsynced' && <span className="mono muted">= master {fmtTime(toMaster(sync.solution.streams[sel.id]!, cursor))}</span>}
-              </div>
-              <div className="row">
+              <div className="sync-cursor">
                 <button className={playing ? 'primary' : ''} onClick={() => { if (cursor === null) setCursor(sel.id, rangeOf(sel.id)[0]); setPlaying((p) => !p); }} title="Play / pause (Space)" aria-label={playing ? 'Pause' : 'Play'} style={{ width: 40 }}>{playing ? '❚❚' : '▶'}</button>
+                <div className="sync-cursor-text">
+                  <div><b>{sel.name}</b> <span className="mono">{cursor === null ? '' : fmtTime(cursor)}</span></div>
+                  <div className="mono muted small">{cursor === null ? 'click or drag in a lane to set the cursor' : sync.solution.streams[sel.id]?.status !== 'unsynced' ? `master ${fmtTime(toMaster(sync.solution.streams[sel.id]!, cursor))}` : 'not synced yet'}</div>
+                </div>
                 <select value={rate} onChange={(e) => setRate(Number(e.target.value))} aria-label="Sync playback speed" title="Playback speed">
                   {[0.1, 0.25, 0.5, 1, 2].map((r) => <option key={r} value={r}>{r}×</option>)}
                 </select>
                 {sel.kind === 'video' && <label className="chk"><input type="checkbox" checked={sound} onChange={(e) => setSound(e.target.checked)} /> Sound</label>}
-                <button onClick={() => step(-1, true)} disabled={cursor === null}>−1 s</button>
-                <button onClick={() => step(-1)} disabled={cursor === null}>◀ {sel.kind === 'video' ? 'frame' : 'sample'}</button>
-                <button onClick={() => step(1)} disabled={cursor === null}>{sel.kind === 'video' ? 'frame' : 'sample'} ▶</button>
-                <button onClick={() => step(1, true)} disabled={cursor === null}>+1 s</button>
-                <button onClick={snap} disabled={cursor === null} title={sel.kind === 'video' ? 'Nearest sound onset (motor start, impact)' : 'Nearest step in the highlighted channel'}>Snap (S)</button>
-                {suggest[sel.id] != null && <button className="primary" onClick={acceptSnap}>Accept {fmtTime(suggest[sel.id]!)} (Enter)</button>}
               </div>
-              <div className="row">
-                <select value={activeEvent ?? ''} onChange={(e) => setActiveEvent(e.target.value || null)} aria-label="Event to place">
-                  {sync.events.length === 0 && <option value="">(type a new event name above)</option>}
-                  {sync.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                </select>
-                <button className="primary" onClick={place} disabled={cursor === null || (!activeEvent && !newEvent.trim())}>Place marker here (M)</button>
-                {activeEvent && (sync.markers[sel.id] ?? []).some((m) => m.eventId === activeEvent) && (
-                  <button onClick={() => sync.removeMarker(sel.id, activeEvent)}>Remove “{activeName}” marker</button>
-                )}
-                {sel.kind === 'log' && (
-                  <span className="row">
+              <div className="tool-group">
+                <div className="tool-title">Move</div>
+                <StepButtons onStep={stepBy} frame={sel.kind === 'video' ? 'frame' : 'sample'} disabled={cursor === null} />
+              </div>
+              <div className="tool-group">
+                <div className="tool-title">Marker</div>
+                <div className="tool-row">
+                  <select value={activeEvent ?? ''} onChange={(e) => setActiveEvent(e.target.value || null)} aria-label="Event to place">
+                    {sync.events.length === 0 && <option value="">(add an event above)</option>}
+                    {sync.events.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  </select>
+                  <button className="primary" onClick={place} disabled={cursor === null || (!activeEvent && !newEvent.trim())}>Place here (M)</button>
+                  <button onClick={snap} disabled={cursor === null} title={sel.kind === 'video' ? 'Nearest sound onset (motor start, impact)' : 'Nearest step in the highlighted channel'}>Snap (S)</button>
+                  {suggest[sel.id] != null && <button className="primary" onClick={acceptSnap}>Accept {fmtTime(suggest[sel.id]!)} (Enter)</button>}
+                  {activeEvent && (sync.markers[sel.id] ?? []).some((m) => m.eventId === activeEvent) && (
+                    <button onClick={() => sync.removeMarker(sel.id, activeEvent)} title={`Remove the “${activeName}” marker from this lane (Del)`}>Remove marker</button>
+                  )}
+                </div>
+              </div>
+              <div className="tool-group">
+                <div className="tool-title">Trim</div>
+                <div className="tool-row">
+                  <button onClick={() => setTrimEdge(0)} disabled={cursor === null} title="Cut everything before the cursor" aria-label="Trim start here">⟦ Start here</button>
+                  <button onClick={() => setTrimEdge(1)} disabled={cursor === null} title="Cut everything after the cursor" aria-label="Trim end here">End here ⟧</button>
+                  {trim && <button onClick={clearTrim} aria-label="Clear trim">Clear</button>}
+                  <span className="muted small">{trim ? `keeps ${fmtTime(trim[0])} → ${fmtTime(trim[1])}` : 'whole stream'}</span>
+                </div>
+              </div>
+              {sel.kind === 'log' && (
+                <div className="tool-group">
+                  <div className="tool-title">Lane channels</div>
+                  <div className="tool-row">
                     <SourceMenu stream={sel.id} specials={false} placeholder="＋ channel…" ariaLabel="Pick a lane channel" onPick={(p) => setLaneChannels((x) => ({ ...x, [sel.id]: [...(x[sel.id] ?? []).filter((c) => c !== p.source), p.source] }))} />
-                    <input value={addChan} onChange={(e) => setAddChan(e.target.value)} placeholder="or type an expression" aria-label="Add lane channel" style={{ width: 160 }}
+                    <input value={addChan} onChange={(e) => setAddChan(e.target.value)} placeholder="or type an expression" aria-label="Add lane channel" style={{ width: 170 }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && addChan.trim()) { setLaneChannels((x) => ({ ...x, [sel.id]: [...(x[sel.id] ?? []), addChan.trim()] })); setAddChan(''); } }} />
-                  </span>
-                )}
-              </div>
+                  </div>
+                </div>
+              )}
               {commandedWarning && (
                 <div className="warn">
                   “{activeName}” on <b>{snapChan}{snapChanLabel ? ` (${snapChanLabel})` : ''}</b> is the throttle <i>command</i>. The prop physically spins up 0.2–0.5 s later.
@@ -460,6 +493,7 @@ export function SyncTab() {
                     <td className="mono">{s?.usedDrift ? `${s.driftPpm.toFixed(0)} ppm` : s?.status === 'synced' ? 'off' : ''}</td>
                     <td className="mono small" title={s?.warning}>{(s?.residuals ?? []).map((r) => `${sync.events.find((e) => e.id === r.eventId)?.name ?? r.eventId}: ${r.ms.toFixed(1)} ms`).join(' · ')}</td>
                     <td>
+                      <div className="opt-row">
                       {s?.status !== 'reference' && (
                         <>
                           <label className="chk"><input type="checkbox" checked={!!opts.offsetOnly} onChange={(e) => sync.setOptions(st.id, { offsetOnly: e.target.checked })} /> offset only</label>
@@ -471,6 +505,7 @@ export function SyncTab() {
                         </>
                       )}
                       {s?.status !== 'reference' && st.kind === 'log' && <button onClick={() => sync.setReference(st.id)}>Make reference</button>}
+                      </div>
                     </td>
                   </tr>
                 );

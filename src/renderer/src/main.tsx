@@ -8,6 +8,7 @@ import { useExpressions } from './data/expressions';
 import { useMedia, mediaSource, setAdjust } from './data/media';
 import { videoDrawOpts } from './export/videoDraw';
 import { removeStream } from './data/remove';
+import { lineValue } from './overlay/values';
 import { cornerFreeCrop } from '@core/video/adjust';
 import { enqueueCompress, useCompress } from './video/compress';
 import { useSync } from './data/sync';
@@ -21,5 +22,5 @@ import { startSession, workspaceDebug } from './data/workspace';
 createRoot(document.getElementById('root')!).render(<App />);
 startPlaybackClock();
 // Diagnostics for the e2e harness and DevTools.
-Object.assign(window.__hl, { timeline: useTimeline, expressions: useExpressions, media: useMedia, mediaSource, videoDrawOpts, timeDomain, removeStream, setAdjust, cornerFreeCrop, compress: useCompress, compressNow: enqueueCompress, syncStore: useSync, logs: useLogs, loadChannel, overlays: useOverlays, workspace: workspaceDebug });
+Object.assign(window.__hl, { timeline: useTimeline, expressions: useExpressions, media: useMedia, mediaSource, videoDrawOpts, timeDomain, lineValue, removeStream, setAdjust, cornerFreeCrop, compress: useCompress, compressNow: enqueueCompress, syncStore: useSync, logs: useLogs, loadChannel, overlays: useOverlays, workspace: workspaceDebug });
 void startSession();

@@ -100,7 +100,7 @@ try {
   await editBtn.click();
   await main.waitForSelector('.overlay-layer[data-window="video-0"] .overlay-toolbar');
   check('edit mode shows the overlay toolbar', (await main.evaluate(() => window.__hl.overlays.getState().editing)) === 'video-0');
-  await main.click('.overlay-layer[data-window="video-0"] button:has-text("＋ Readout")');
+  await main.click('.overlay-layer[data-window="video-0"] button:has-text("＋ Widget")'); // a new widget starts as a readout
   await sleep(300);
   const items = () => main.evaluate(() => window.__hl.overlays.getState().byWindow['video-0'] ?? []);
   let ro = (await items())[0];
@@ -164,7 +164,11 @@ try {
   check('arrow key nudges the selected overlay (not the playhead)', near(r3.x - r2.x, 0.004, 1e-6) && (await main.evaluate(() => window.__hl.timeline.getState().t)) === T);
 
   // Horizon overlay.
-  await main.click('.overlay-layer[data-window="video-0"] button:has-text("＋ Horizon")');
+  // Horizon: a new widget, switched to the Horizon type in its menu.
+  await main.click('.overlay-layer[data-window="video-0"] button:has-text("＋ Widget")');
+  await main.selectOption('.overlay-editor select[aria-label="Widget type"]', 'adi');
+  // Move it clear of the readout (where the old ＋ Horizon button put it).
+  await main.evaluate(() => { const st = window.__hl.overlays.getState(), it = st.byWindow['video-0'].find((o) => o.kind === 'adi'); st.patch('video-0', it.id, { rect: { x: 0.62, y: 0.55, w: 0.35, h: 0.42 } }); });
   await sleep(500);
   const adi = (await items()).find((o) => o.kind === 'adi');
   const pix = await main.evaluate((rect) => {
@@ -262,7 +266,8 @@ try {
     const t1 = await main.evaluate(() => window.__hl.timeline.getState().t);
     await pop.keyboard.press('Shift+ArrowLeft');
     const t2 = await main.evaluate(() => window.__hl.timeline.getState().t);
-    check('Space and arrow keys work inside the pop-out', playing && paused && near(t1 - T, 1 / 30, 1e-9) && near(t2 - t1, -1, 1e-9), `play ${playing}, pause ${paused}, → ${(t1 - T).toFixed(4)} s, ⇧← ${(t2 - t1).toFixed(3)} s`);
+    // → steps to the next video frame (frame-exact), so at most 1/30 s here.
+    check('Space and arrow keys work inside the pop-out', playing && paused && t1 - T > 0 && t1 - T <= 1 / 30 + 1e-6 && near(t2 - t1, -1, 1e-9), `play ${playing}, pause ${paused}, → ${(t1 - T).toFixed(4)} s, ⇧← ${(t2 - t1).toFixed(3)} s`);
 
     // Edit overlays inside the pop-out.
     await pop.click('button[aria-label="Edit overlays"]');

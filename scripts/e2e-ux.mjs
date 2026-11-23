@@ -101,7 +101,7 @@ try {
   // ================= Cascading source menu (readout) =================
   await main.click('button[role=tab]:has-text("Review")');
   await main.evaluate(() => { window.__hl.overlays.getState().setEditing('video-0'); window.__hl.timeline.getState().setT(60); });
-  await main.click('.overlay-layer[data-window="video-0"] button:has-text("＋ Readout")');
+  await main.click('.overlay-layer[data-window="video-0"] button:has-text("＋ Widget")');
   await main.waitForSelector('.overlay-editor');
   await main.click('.overlay-editor button[aria-label="Pick source 1"]');
   await main.waitForSelector('.cascade-col');

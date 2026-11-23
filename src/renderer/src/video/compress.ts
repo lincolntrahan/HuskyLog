@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { buildMp4, copyAudioTrack, type MuxTrack, type Run } from '@core/pack/mp4mux';
 import { mediaSource, replaceVideoFile, useMedia } from '../data/media';
-import { useSync } from '../data/sync';
+import { trimOf, useSync } from '../data/sync';
 import { trimRange } from '../pack/packer';
 import { useApp } from '../store';
 import { encodeAac } from './aac';
@@ -122,7 +122,9 @@ export async function compressVideo(id: string, o: CompressOptions, onProgress: 
   const tables = await src.muxSource();
   if (!tables.video) throw new Error('No video track');
   const tr = o.trim ? trimRange(id) : null;
-  const [t0, t1] = tr ? [Math.max(v.video.startS, tr[0]), Math.min(v.video.endS, tr[1])] : [v.video.startS, v.video.endS];
+  // The stream's own trim (Sync tab) always applies; "only the flight" narrows further.
+  const own = trimOf(id) ?? [v.video.startS, v.video.endS];
+  const [t0, t1] = tr ? [Math.max(v.video.startS, own[0], tr[0]), Math.min(v.video.endS, own[1], tr[1])] : [Math.max(v.video.startS, own[0]), Math.min(v.video.endS, own[1])];
   const target = await window.huskylog.compressTarget(v.path);
   const temp = await window.huskylog.packTempCreate();
   const q = QUALITIES[o.quality];
@@ -151,7 +153,9 @@ export async function compressVideo(id: string, o: CompressOptions, onProgress: 
   const original = v.original ?? { name: v.path.replace(/^.*[\\/]/, ''), size: v.size, path: v.path };
   await replaceVideoFile(id, file, { adjust: undefined, original });
   useSync.setState((s) => (s.markers[id] ? { markers: { ...s.markers, [id]: s.markers[id]!.map((m) => ({ ...m, t: m.t - res.tCut })) } } : s));
-  useSync.getState().setOptions(id, {}); // re-solve with the moved markers
+  // The trim is in the old file's time too: move it the same way (this also re-solves).
+  const own2 = trimOf(id);
+  useSync.getState().setOptions(id, own2 ? { trim: [own2[0] - res.tCut, own2[1] - res.tCut] } : {});
   useApp.setState((s) => ({ files: [...s.files.filter((f) => f.path !== file.path), file] }));
   return { path: target, before: v.size, after };
 }

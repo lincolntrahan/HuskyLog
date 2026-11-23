@@ -1345,3 +1345,54 @@ parameters (within 0.01). Also checked: Mode 1, Flip elevator, the channel
 5–8 bars, export, and saving with the window. Phases 6 and 7, release-1
 features and 94 unit tests pass. Phase 5 passes apart from the four
 window-position checks that also fail on `main` on this machine.
+
+## Appendix N. UX round 3 (2026-11-22)
+
+**Step buttons:** −10 s, −1 s, −10f, −1f, +1f, +10f, +1 s, +10 s
+(`ui/StepButtons`).
+- **Review timeline bar:** a frame step lands exactly on the next or previous
+  frame of the video in the first Video window that covers the playhead,
+  through its sync mapping (`data/step.ts`). With no video there, it steps
+  1/30 s.
+- **Keys:** ←/→ now step one frame (Shift: 1 s); `,` and `.` step one frame
+  (Shift: 10).
+- **Sync:** frames on a video lane, samples of the highlighted channel on a
+  log lane.
+
+**Trim (Sync):** "⟦ Start here" and "End here ⟧" at the cursor, and Clear.
+- Stored per stream as `StreamOptions.trim` (the stream's own time), so it is
+  saved with the sync options in the workspace.
+- In the Sync tab, outside the trim is shaded and the kept range bracketed.
+- The Review time domain covers only kept parts. Graph lines are clipped. The
+  3D map trail leaves the cut out. Readouts, the horizon and sticks show
+  nothing outside the trim, and video shows "Trimmed".
+- Compression and Pack & Go's trim mode keep only the trimmed part. Their
+  copies move the trim with the markers when the new file starts later.
+- `.bin` logs are packed whole; their trim applies when the workspace opens.
+
+**Layout:**
+- Header: File and the session name on the left, tabs on the right.
+- Sync bottom panel: a cursor row (play, name, cursor and master time, speed,
+  sound), then labelled rows: Move, Marker, Trim, Lane channels.
+- The stream table's nudges sit on one line.
+
+**Overlay widgets:** one "＋ Widget" button replaces the per-type buttons.
+- Each widget's menu starts with a Type choice (Readout / Horizon / Pilot
+  sticks).
+- `convertWidget` keeps the id, position and log. It takes the new type's
+  default size (a readout strip is too small for a horizon) and keeps any
+  settings the widget had for the other types.
+
+**Verified:** `scripts/e2e-ux3.mjs` (15 checks) covers:
+- the header layout;
+- Review ±1/+10 frames (exact frame indices), ±s, and the `.` / `,` keys;
+- the grouped Sync controls; Sync stepping by frames, seconds and log samples;
+- the trim buttons; the Review domain; "Trimmed" video; readouts and graph
+  lines clipped to the log trim; saving;
+- the single ＋ Widget button and switching types in place.
+
+Unit tests (94), Phases 4, 6 and 7, both feature harnesses and the sticks
+harness pass. In Phase 5, the tests now add widgets instead of using
+"＋ Readout" / "＋ Horizon", and the pop-out arrow step expects
+frame-exact stepping. It passes apart from the four window-position checks
+that also fail on `main` on this machine.

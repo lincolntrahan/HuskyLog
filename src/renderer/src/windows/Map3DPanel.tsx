@@ -22,6 +22,7 @@ import { useApp, type CameraState } from '../store';
 import { diag } from '../debug';
 import { primaryLog, useLogs } from '../data/logs';
 import { useTimeline } from '../data/timeline';
+import { trimOf, useSync } from '../data/sync';
 import { decimateIndices, loadTrack, poseAt, type Track } from '../data/track';
 import { createTerrainProvider, clearTerrainCache, terrainHeightAt } from '../map/terrain';
 import { modeHue } from './graph/model';
@@ -60,6 +61,7 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
   const [cacheOpen, setCacheOpen] = useState(false);
   const [track, setTrack] = useState<Track | null>(null);
   const crop = useTimeline((s) => s.crop);
+  const trimKey = useSync((s) => JSON.stringify(primaryLog() ? s.options[primaryLog()!.id]?.trim ?? null : null));
   const [ground, setGround] = useState<{ h: number; source: string } | null>(null);
   const logs = useLogs();
   const primary = primaryLog();
@@ -151,6 +153,9 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
       if (track) {
         idx = decimateIndices(track);
         // Workspace crop: only that part of the flight is drawn.
+        // Stream trim (log time), then the workspace crop.
+        const tr = primary ? trimOf(primary.id) : null;
+        if (tr) { const kept = idx.filter((i) => track.t[i]! >= tr[0] && track.t[i]! <= tr[1]); if (kept.length >= 2) idx = kept; }
         if (crop) { const inCrop = idx.filter((i) => track.t[i]! >= crop[0] && track.t[i]! <= crop[1]); if (inCrop.length >= 2) idx = inCrop; }
         positions = idx.map((i) => Cartesian3.fromDegrees(track.lng[i]!, track.lat[i]!, heightAt(i)));
         colors = idx.map((i) => {
@@ -341,7 +346,7 @@ export function Map3DPanel({ api, params }: IDockviewPanelProps<{ map?: MapCfg; 
       if (rafWin && !rafWin.closed) rafWin.cancelAnimationFrame(raf);
       teardown();
     };
-  }, [api.id, track, areas, hasTerrain, ground, cfg.alt, crop]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [api.id, track, areas, hasTerrain, ground, cfg.alt, crop, trimKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const covered = track ? areasCover(areas, track.bbox) : true;
   const modes: [CameraMode, string, string][] = [['free', 'Free', 'Free camera'], ['follow', 'Follow', 'Follow the aircraft at a fixed offset (orbit/zoom still work)'], ['chase', 'Chase', 'Behind the aircraft'], ['top', 'Top', 'Top-down over the aircraft']];

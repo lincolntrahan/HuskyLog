@@ -1,7 +1,7 @@
 import { toPx } from '@core/overlay/rect';
 import { drawAdi, forCamera } from '../adi/drawAdi';
 import type { OverlayItem } from './model';
-import { adiState, lineValue, sticksState } from './values';
+import { adiState, lineValue, sticksState, streamOf } from './values';
 import { gimbals } from '@core/overlay/sticks';
 
 /**
@@ -88,6 +88,7 @@ const STICK = '#ffcc00';
 export function drawSticksOverlay(ctx: CanvasRenderingContext2D, item: OverlayItem, x: number, y: number, w: number, h: number, tMaster: number): void {
   const st = item.style;
   const s = sticksState(item, tMaster);
+  if (!s && streamOf(item)) return; // trimmed out
   ctx.save();
   if (st.opacity > 0) { ctx.fillStyle = hexA(st.bg, st.opacity); ctx.beginPath(); ctx.roundRect(x, y, w, h, Math.min(6, h * 0.06)); ctx.fill(); }
   const pad = Math.max(3, Math.min(w, h) * 0.05);

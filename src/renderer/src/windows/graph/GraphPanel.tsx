@@ -16,12 +16,27 @@ import { DEFAULT_GRAPH, modeColor, nextColor, type GraphCfg, type SeriesCfg } fr
 import { ExportDialog, PresetMenu, StatsTable } from './GraphParts';
 import { ExpressionEditor, type ExprDraft } from './ExpressionEditor';
 import { loadExpression, useExpressions } from '../../data/expressions';
-import { streamSolution, useSync } from '../../data/sync';
+import { streamSolution, trimOf, useSync } from '../../data/sync';
 
 /** Maps a non-reference log's local times onto the master timeline (cached per mapping). */
 const mapped = new WeakMap<LoadedChannel, { a: number; b: number; out: LoadedChannel }>();
-function toMasterTime(stream: string, d: LoadedChannel | null): LoadedChannel | null {
+// Trimmed part of a stream is left out of its lines.
+const trimmed = new WeakMap<LoadedChannel, { a: number; b: number; out: LoadedChannel }>();
+function clipToTrim(stream: string, d: LoadedChannel): LoadedChannel {
+  const tr = trimOf(stream);
+  if (!tr) return d;
+  const hit = trimmed.get(d);
+  if (hit && hit.a === tr[0] && hit.b === tr[1]) return hit.out;
+  const lower = (x: number) => { let lo = 0, hi = d.t.length; while (lo < hi) { const m = (lo + hi) >> 1; if (d.t[m]! < x) lo = m + 1; else hi = m; } return lo; };
+  const i0 = lower(tr[0]), i1 = lower(tr[1] + 1e-9);
+  const out = { ...d, t: d.t.subarray(i0, i1), v: d.v.subarray(i0, i1) };
+  trimmed.set(d, { a: tr[0], b: tr[1], out });
+  return out;
+}
+
+function toMasterTime(stream: string, d0: LoadedChannel | null): LoadedChannel | null {
   const s = streamSolution(stream);
+  const d = d0 ? clipToTrim(stream, d0) : d0;
   if (!d || !s || s.status !== 'synced' || (s.a === 1 && s.b === 0)) return d;
   const hit = mapped.get(d);
   if (hit && hit.a === s.a && hit.b === s.b) return hit.out;
@@ -412,7 +427,7 @@ export function GraphPanel({ api, params }: IDockviewPanelProps<{ graph?: GraphC
 
   const readT = hoverT ?? playT;
   const fmtVal = (v: number) => (Number.isNaN(v) ? '–' : Math.abs(v) >= 1000 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(2) : v.toPrecision(4));
-  (window.__hl as Record<string, unknown>)[`graph:${api.id}`] = { setCfg, getCfg: () => cfg, setXRange, refresh: () => refresh() };
+  (window.__hl as Record<string, unknown>)[`graph:${api.id}`] = { setCfg, getCfg: () => cfg, setXRange, refresh: () => refresh(), dataRange: () => { const d = visible[0]?.data; return d && d.t.length ? [d.t[0], d.t[d.t.length - 1]] : null; } };
 
   return (
     <div className="hl-panel graph" tabIndex={0} onKeyDown={onKey}>
