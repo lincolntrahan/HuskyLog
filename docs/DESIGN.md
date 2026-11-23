@@ -1317,3 +1317,31 @@ Phases 1, 4, 6 and 7 pass. Unit tests pass.
   no-overwrite naming, auto-compress, and the workspace references.
 
 Unit tests (90), release-1 features (16), Phases 1, 4, 6 and 7 pass.
+
+## Appendix M. Pilot-sticks overlay (2026-11-22)
+
+A third overlay type, "＋ Sticks" (next to Readout and Horizon):
+- **Display:** two stick gimbals and channel 5–8 sliders, from the log's RC
+  input (`RCIN.C1…C14`, µs).
+  - Mode 2 (default): rudder and throttle left, aileron and elevator right.
+    Mode 1 swaps throttle and elevator.
+  - Optional PWM values.
+- **Calibration** from the log's parameters at the playhead:
+  - `RCn_MIN/TRIM/MAX/REVERSED`. Centred axes map trim to 0, separately per
+    side; throttle maps min to max as 0 to 1.
+  - `RCMAP_ROLL/PITCH/THROTTLE/YAW` decide which channel is which (AETR by
+    default).
+  - Math in `core/overlay/sticks.ts`, with unit tests.
+- **Elevator:** ArduPilot's convention is stick forward = low PWM, shown with
+  forward = up. The reference flight couldn't confirm the direction from data
+  (manual elevator against pitch rate was flat), so the editor has
+  "Flip elevator".
+- **Edit toolbar** stays on one line; the hint text shortens instead of
+  wrapping over the video in narrow windows.
+
+**Verified:** `scripts/e2e-sticks.mjs` (7 checks). Dot positions in the
+overlay's pixels match positions computed independently from RCIN and the
+parameters (within 0.01). Also checked: Mode 1, Flip elevator, the channel
+5–8 bars, export, and saving with the window. Phases 6 and 7, release-1
+features and 94 unit tests pass. Phase 5 passes apart from the four
+window-position checks that also fail on `main` on this machine.

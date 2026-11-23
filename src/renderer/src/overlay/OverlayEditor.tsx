@@ -20,7 +20,7 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
   return (
     <div className={`overlay-editor side-${side}`} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <div className="oe-head">
-        <b>{item.kind === 'adi' ? 'Horizon overlay' : 'Readout'}</b>
+        <b>{item.kind === 'adi' ? 'Horizon overlay' : item.kind === 'sticks' ? 'Pilot sticks' : 'Readout'}</b>
         <button title="Delete overlay (Del)" onClick={() => useOverlays.getState().remove(win, item.id)}>Delete</button>
       </div>
       {ready.length > 1 && (
@@ -83,8 +83,23 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
           </select></label>
         </div>
       )}
+      {item.kind === 'sticks' && (
+        <>
+          <div className="oe-row">
+            <label title="Mode 2: throttle and rudder on the left stick. Mode 1: elevator and rudder on the left.">Transmitter <select value={item.stickMode ?? 2} onChange={(e) => patch({ stickMode: Number(e.target.value) as 1 | 2 })} aria-label="Transmitter mode">
+              <option value={2}>Mode 2 (throttle left)</option><option value={1}>Mode 1 (throttle right)</option>
+            </select></label>
+            <label className="chk"><input type="checkbox" checked={item.aux ?? true} onChange={(e) => patch({ aux: e.target.checked })} aria-label="Channel 5-8 sliders" /> Channel 5–8 sliders</label>
+          </div>
+          <div className="oe-row">
+            <label className="chk"><input type="checkbox" checked={!!item.values} onChange={(e) => patch({ values: e.target.checked })} aria-label="PWM values" /> PWM values (µs)</label>
+            <label className="chk" title="ArduPilot expects the elevator stick forward to give a low PWM. Tick this if the dot moves opposite to the stick."><input type="checkbox" checked={!!item.flipElevator} onChange={(e) => patch({ flipElevator: e.target.checked })} aria-label="Flip elevator" /> Flip elevator</label>
+          </div>
+          <div className="muted small">From the log's RC input (RCIN), calibrated with its RCn_MIN/TRIM/MAX/REVERSED and mapped with RCMAP_* (AETR by default).</div>
+        </>
+      )}
       <div className="oe-row">
-        {item.kind === 'readout' && <label>Text <input type="color" value={item.style.color} onChange={(e) => patch({ style: { ...item.style, color: e.target.value } })} aria-label="Text colour" /></label>}
+        {item.kind !== 'adi' && <label>Text <input type="color" value={item.style.color} onChange={(e) => patch({ style: { ...item.style, color: e.target.value } })} aria-label="Text colour" /></label>}
         <label>Box <input type="color" value={item.style.bg} onChange={(e) => patch({ style: { ...item.style, bg: e.target.value } })} aria-label="Box colour" /></label>
         <label>Opacity <input type="range" min={0} max={1} step={0.05} value={item.style.opacity} onChange={(e) => patch({ style: { ...item.style, opacity: Number(e.target.value) } })} aria-label="Box opacity" /></label>
       </div>
