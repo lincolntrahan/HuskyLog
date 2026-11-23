@@ -24,6 +24,10 @@ export interface WorkspaceStream {
   kind: 'log' | 'video';
   name: string;
   file: FileRef;
+  /** Videos: picture adjustments (rotate, mirror, straighten, crop); see core/video/adjust. */
+  adjust?: unknown;
+  /** Videos played from a compressed copy: the original file it was made from. */
+  original?: FileRef;
 }
 
 export interface WorkspaceSync {
@@ -82,7 +86,8 @@ export function stringifyWorkspace(w: Workspace): string {
 /** The part that matters for "unsaved changes" (playhead and save time excluded). */
 export function contentKey(w: Workspace): string {
   const { saved: _s, app: _a, ui, ...rest } = w;
-  return JSON.stringify({ ...rest, range: ui.range, tab: ui.tab });
+  // Numbers to 9 significant digits: float jitter (a camera re-saved as 6.283185307179585) isn't a change.
+  return JSON.stringify({ ...rest, range: ui.range, tab: ui.tab }, (_k, v) => (typeof v === 'number' && !Number.isInteger(v) ? Number(v.toPrecision(9)) : v));
 }
 
 /** Relative path from a folder to a file, with forward slashes (Windows-safe). */

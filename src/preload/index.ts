@@ -57,6 +57,8 @@ const api: HuskyLogApi = {
   exportPickPath: (name, kind) => ipcRenderer.invoke(WS_IPC.exportPick, name, kind),
   exportWriteFile: (path, data) => ipcRenderer.invoke(WS_IPC.exportWriteFile, path, data),
   exportWriteMp4: (path, spec) => ipcRenderer.invoke(WS_IPC.exportWriteMp4, path, spec),
+  compressTarget: (src) => ipcRenderer.invoke(WS_IPC.compressTarget, src),
+  compressOpen: (path) => ipcRenderer.invoke(WS_IPC.compressOpen, path),
   // Updates
   updateStatus: () => ipcRenderer.invoke(UPDATE_IPC.get),
   checkForUpdates: () => ipcRenderer.invoke(UPDATE_IPC.check),

@@ -29,7 +29,8 @@
     "release:minor": "npm version minor && git push --follow-tags",
     "e2e:ux": "node scripts/e2e-ux.mjs",
     "bench:export": "node scripts/bench-export.mjs",
-    "e2e:features": "node scripts/e2e-features.mjs"
+    "e2e:features": "node scripts/e2e-features.mjs",
+    "e2e:features2": "node scripts/e2e-features2.mjs"
   },
   "devDependencies": {
     "@cesium/core": "^0.1.1",

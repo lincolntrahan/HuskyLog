@@ -1,19 +1,29 @@
 import { planVideoTrim, type MuxTrack, type SrcTrack } from '@core/pack/mp4mux';
 import type { MediaSource } from './MediaSource';
 import { H264Sink } from './h264';
+import { adjustedSize, isIdentity, type VideoAdjust } from '@core/video/adjust';
+import { drawPicture } from '../export/videoDraw';
 
 /**
  * "Re-encode smaller" for Pack & Go: decodes the kept range with WebCodecs,
  * scales to ≤ 720p and encodes H.264 (H264Sink), streaming the encoded bytes
  * to `sink`. Output frame times are the original presentation times − tCut.
  */
-export interface EncodeResult { track: MuxTrack; bytes: number; tCut: number; firstPts: number; lastPts: number; frames: number; mode: string }
+export interface EncodeResult { track: MuxTrack; bytes: number; tCut: number; firstPts: number; lastPts: number; frames: number; mode: string; width: number; height: number }
 
 export async function reencodeVideo(
   src: MediaSource, v: SrcTrack, t0: number, t1: number,
   sink: (bytes: Uint8Array) => Promise<void>,
   onProgress: (fraction: number) => void,
-  opts: { maxHeight?: number; signal?: { cancelled: boolean } } = {},
+  opts: {
+    maxHeight?: number;
+    /** Fit inside long × short pixels in either orientation (e.g. 1920 × 1080); overrides maxHeight. */
+    fit?: { long: number; short: number } | null;
+    /** Bake the picture: the file rotation plus these adjustments (output has no rotation flag). */
+    bake?: { fileRot: number; adjust?: VideoAdjust };
+    bitsPerPixel?: number;
+    signal?: { cancelled: boolean };
+  } = {},
 ): Promise<EncodeResult> {
   const plan = planVideoTrim(v, t0, t1);
   const samples = v.samples.slice(plan.first, plan.last + 1);
@@ -24,11 +34,15 @@ export async function reencodeVideo(
 
   const dec = src.videoDecoderConfig;
   const srcW = dec.codedWidth ?? v.width ?? 1280, srcH = dec.codedHeight ?? v.height ?? 720;
-  const outH = Math.min(opts.maxHeight ?? 720, srcH) & ~1;
-  const outW = Math.round((srcW * outH) / srcH / 2) * 2;
+  const bake = opts.bake && (opts.bake.fileRot || !isIdentity(opts.bake.adjust)) ? opts.bake : null;
+  const base = bake ? adjustedSize(srcW, srcH, bake.fileRot, bake.adjust ?? { rot: 0, flipH: false, flipV: false, fine: 0, crop: { x: 0, y: 0, w: 1, h: 1 } }) : { w: srcW, h: srcH };
+  const k = opts.fit
+    ? Math.min(1, opts.fit.long / Math.max(base.w, base.h), opts.fit.short / Math.min(base.w, base.h))
+    : opts.fit === null ? 1 : Math.min(1, (opts.maxHeight ?? 720) / base.h);
+  const outW = Math.max(2, Math.round((base.w * k) / 2) * 2), outH = Math.max(2, Math.round((base.h * k) / 2) * 2);
   const canvas = new OffscreenCanvas(outW, outH);
   const g = canvas.getContext('2d')!;
-  const enc = await H264Sink.create({ width: outW, height: outH, fps }, sink);
+  const enc = await H264Sink.create({ width: outW, height: outH, fps, ...(opts.bitsPerPixel ? { bitsPerPixel: opts.bitsPerPixel } : {}) }, sink);
 
   let encoded = 0, decErr: unknown = null;
   const keyEvery = Math.max(1, Math.round(fps * 2));
@@ -37,7 +51,8 @@ export async function reencodeVideo(
     output: (f) => {
       const p = f.timestamp / 1e6 + v.shift;
       if (p < firstPts - 1e-6 || p > lastPts + 1e-6) { f.close(); return; }
-      g.drawImage(f, 0, 0, outW, outH);
+      if (bake) { g.fillStyle = '#000'; g.fillRect(0, 0, outW, outH); drawPicture(g, 'reencode', f, f.displayWidth, f.displayHeight, bake.fileRot, bake.adjust, outW, outH); }
+      else g.drawImage(f, 0, 0, outW, outH);
       f.close();
       frames.push(new VideoFrame(canvas, { timestamp: Math.round((p - tCut) * 1e6), duration: Math.round(1e6 / fps) }));
     },
@@ -79,6 +94,6 @@ export async function reencodeVideo(
   decoder.close();
   await drain();
   if (decErr) throw new Error(`Re-encode failed: ${String(decErr)}`);
-  const track = await enc.finish(v.matrix);
-  return { track, bytes: enc.bytes, tCut, firstPts, lastPts, frames: track.samples.length, mode: enc.mode };
+  const track = await enc.finish(bake ? undefined : v.matrix);
+  return { track, bytes: enc.bytes, tCut, firstPts, lastPts, frames: track.samples.length, mode: enc.mode, width: outW, height: outH };
 }

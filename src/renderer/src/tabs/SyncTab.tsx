@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { adjustedSize, NO_ADJUST } from '@core/video/adjust';
+import { drawPicture } from '../export/videoDraw';
+import type { VideoAdjust } from '@core/video/adjust';
+
+/** CSS transform for the playing preview: rotation, mirror and straightening (the crop applies when paused). */
+const playTransform = (fileRot: number, a?: VideoAdjust) => {
+  const r = fileRot + (a?.rot ?? 0);
+  const t = `${a?.fine ? `rotate(${a.fine}deg) ` : ''}${a?.flipH || a?.flipV ? `scale(${a.flipH ? -1 : 1}, ${a.flipV ? -1 : 1}) ` : ''}${r ? `rotate(${r}deg)` : ''}`.trim();
+  return t || undefined;
+};
 import { snapEdge, smooth } from '@core/timesync/snap';
 import { toLocal, toMaster } from '@core/timesync/solver';
 import { useLogs, channelExists } from '../data/logs';
@@ -181,12 +191,14 @@ export function SyncTab() {
         if (!w || !c || !src) break;
         const bmp = await src.frame(w.i).catch(() => null);
         if (bmp && wantRef.current === w) {
-          const rot = src.video!.rotation;
-          const sw = rot % 180 ? bmp.height : bmp.width, sh = rot % 180 ? bmp.width : bmp.height;
+          // Same picture as the Video window: file rotation plus the video's adjustments.
+          const rot = src.video!.rotation, adj = useMedia.getState().videos[w.id]?.adjust;
+          const size = adjustedSize(bmp.width, bmp.height, rot, adj ?? NO_ADJUST);
+          const sw = Math.max(2, Math.round(size.w)), sh = Math.max(2, Math.round(size.h));
           if (c.width !== sw || c.height !== sh) { c.width = sw; c.height = sh; }
           const ctx = c.getContext('2d')!;
-          ctx.save(); ctx.translate(sw / 2, sh / 2); ctx.rotate((rot * Math.PI) / 180);
-          ctx.drawImage(bmp, -bmp.width / 2, -bmp.height / 2); ctx.restore();
+          ctx.fillStyle = '#000'; ctx.fillRect(0, 0, sw, sh);
+          drawPicture(ctx, 'sync-preview', bmp, bmp.width, bmp.height, rot, adj, sw, sh);
           (window.__hl as Record<string, unknown>)['syncPreview'] = { index: w.i, id: w.id };
           if (wantRef.current === w) break;
         }
@@ -427,7 +439,7 @@ export function SyncTab() {
           <div className="sync-preview">
             <div className="sync-preview-stage" onMouseDown={onPreviewDown} onWheel={onPreviewWheel} title="Drag sideways to jog frame by frame (Shift: ×10) · wheel: ±1 frame">
               <canvas ref={previewRef} style={{ display: playing ? 'none' : 'block' }} />
-              <video ref={videoRef} playsInline preload="auto" style={{ display: playing ? 'block' : 'none', transform: media.videos[sel.id]?.video?.rotation ? `rotate(${media.videos[sel.id]!.video!.rotation}deg)` : undefined }} />
+              <video ref={videoRef} crossOrigin="anonymous" playsInline preload="auto" style={{ display: playing ? 'block' : 'none', transform: playTransform(media.videos[sel.id]?.video?.rotation ?? 0, media.videos[sel.id]?.adjust) }} />
             </div>
             {cursor !== null && mediaSource(sel.id) && <div className="mono small">frame {mediaSource(sel.id)!.indexAt(cursor)} · {fmtTime(cursor)}</div>}
           </div>

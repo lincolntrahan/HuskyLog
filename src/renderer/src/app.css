@@ -321,3 +321,18 @@ progress { width: 140px; }
 .row-x:hover { color: #ff6b6b; border-color: #ff6b6b55; background: #ff6b6b14; }
 button.danger { background: #c94848; border-color: #c94848; }
 button.danger:hover { background: #d95858; }
+
+/* Adjust video dialog */
+.row-actions { white-space: nowrap; display: flex; gap: 4px; align-items: center; }
+.modal.adjust { width: auto; max-width: min(720px, 96vw); }
+.adjust-tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.adjust-tools label { display: inline-flex; gap: 6px; align-items: center; }
+.adjust-tools button.on { background: #2b3a4d; border-color: #4ea1ff; }
+.adjust-preview { width: 640px; max-width: 100%; height: auto; aspect-ratio: 640 / 400; background: #0d1014; border-radius: 4px; cursor: crosshair; }
+
+/* Compression */
+.h3-row { display: flex; align-items: baseline; gap: 16px; }
+.auto-compress { font-size: 12px; display: inline-flex; gap: 6px; align-items: center; }
+.compress-run { display: inline-flex; gap: 6px; align-items: center; }
+.compress-run progress { width: 120px; }
+button.link { background: none; border: none; color: #4ea1ff; padding: 0; text-decoration: underline; cursor: pointer; }

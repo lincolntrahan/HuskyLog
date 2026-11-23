@@ -36,6 +36,9 @@ export function virtualSource(path: string): Virtual | undefined {
   return virtuals.get(path.toLowerCase());
 }
 
+/** True for files the user opened (or HuskyLog wrote for them). */
+export const isAllowedFile = (path: string) => allowed.has(norm(path));
+
 export function allowFile(path: string): OpenedFile {
   const abs = resolve(path);
   allowed.add(norm(abs));
@@ -66,6 +69,9 @@ export function handleHlFile(): void {
     }
     const type = MIME[extname(v ? v.name : abs).toLowerCase()] ?? 'application/octet-stream';
     const range = req.headers.get('range');
+    // CORS for HuskyLog's own pages only: lets a <video crossOrigin> be painted into a canvas without tainting it.
+    const origin = req.headers.get('origin');
+    const cors: Record<string, string> = origin && origin.startsWith('app://') ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {};
     const m = range && /^bytes=(\d*)-(\d*)$/.exec(range.trim());
     if (m && (m[1] || m[2])) {
       let start: number, end: number;
@@ -84,14 +90,14 @@ export function handleHlFile(): void {
         status: 206,
         headers: {
           'Content-Type': type, 'Accept-Ranges': 'bytes',
-          'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1),
+          'Content-Range': `bytes ${start}-${end}/${size}`, 'Content-Length': String(end - start + 1), ...cors,
         },
       });
     }
     const body = size === 0 ? null : (Readable.toWeb(createReadStream(file, { start: base, end: base + size - 1 })) as ReadableStream);
     return new Response(body, {
       status: 200,
-      headers: { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': String(size) },
+      headers: { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': String(size), ...cors },
     });
   });
 }

@@ -1264,3 +1264,56 @@ the horizon mirroring (slope −64 px forward / +65 px backward at a 30° bank),
 right-drag crop on the timeline and the graph, the legend average against an
 independent mean, both export checkboxes, saving and clearing.
 Phases 1, 4, 6 and 7 pass. Unit tests pass.
+
+## Appendix L. Team requests, part 2: v0.1.5 (2026-11-22)
+
+**Video adjustments** (`core/video/adjust.ts`, "Adjust…" on each Import row).
+- Rotate in 90° steps, mirror ↔, flip ↕, straighten (±45°) and crop, with
+  "Crop out corners" for the largest corner-free crop after straightening.
+- Order: the file's rotation, then the 90° steps, the mirror (in screen space),
+  the straightening about the centre, then the crop (normalised to the turned
+  picture). The crop moves with the picture on rotate and mirror (`turnCrop`).
+- Non-destructive: stored per stream in the workspace (`streams[].adjust`).
+  One function, `drawPicture`, draws for export, the Video window and the Sync
+  preview, so they always agree.
+- While playing with adjustments, the Video window paints the native `<video>`
+  into its canvas on every presented frame. The element stays rendered,
+  transparent, so frame callbacks keep coming.
+- The Sync preview applies rotate, mirror and straighten through CSS while
+  playing; the crop shows when paused.
+
+**Compressed copies** (`video/compress.ts`, "Compress…" per video and
+"Compress new videos").
+- Re-encodes to H.264 with the adjustments and file rotation baked in.
+  Choices: 1080p medium (0.08 bit/pixel, about 5 Mbit/s at 1080p30), 720p
+  small, or the original resolution. Optionally only the selection or the
+  flight log's span, ± 5 s.
+- Writes `NAME.huskylog.mp4` beside the original, never over an existing file
+  (`-2`, `-3`, …). Main derives the path and only allows it for an opened
+  video.
+- The stream switches to the copy in place (`replaceVideoFile`): same id,
+  windows and markers. Markers move by the trimmed start, so sync is
+  frame-exact. The original is remembered (`streams[].original`).
+- Audio: AAC is copied; PCM is encoded to AAC.
+- Auto-compress skips videos a copy wouldn't shrink to ≤ 75 %. The dialog warns
+  in that case.
+
+**Real footage:** a team camera file (`REC_0007.MOV`: 930 MB, 7.6 min, 1080p30, 16 Mbit/s, PCM audio) became a 296 MB copy (3.1× smaller, 1080p, AAC). It took 209 s, 2.2× faster than real time, on an i7-1360P laptop.
+
+**Also fixed:**
+- **Tainted canvas:** `hl-file://` now answers HuskyLog pages (`app://` origins) with CORS headers, and the video elements are `crossOrigin="anonymous"`. Without this, painting a playing video into a canvas made the canvas unreadable.
+- **Fresh-session dirty race:** the "saved" snapshot now waits for files added
+  during its timer.
+- **Float jitter:** the change comparison rounds numbers to 9 significant
+  digits, so a re-saved camera heading isn't a change.
+
+**Verified:** `scripts/e2e-features2.mjs` (16 checks) covers:
+- caption position after rotate, mirror, flip and crop;
+- straightening with "Crop out corners";
+- saving, playback of an adjusted video (rotated frames painted), and export
+  of the adjusted picture;
+- compression: naming, the baked rotation (720×1280), the flash on the exact
+  frame after compression, PCM to AAC with the beep at the flash, the trim,
+  no-overwrite naming, auto-compress, and the workspace references.
+
+Unit tests (90), release-1 features (16), Phases 1, 4, 6 and 7 pass.
