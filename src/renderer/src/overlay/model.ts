@@ -72,6 +72,35 @@ export function newSticks(at?: Partial<NRect>): OverlayItem {
   return { id: newId(), kind: 'sticks', rect: { x: 0.03, y: 0.62, w: 0.34, h: 0.34, ...at }, style: { ...DEFAULT_STYLE, opacity: 0.35 }, stickMode: 2, aux: true, values: false };
 }
 
+/** Widget types, as the widget menu lists them. */
+export const WIDGET_TYPES: { kind: OverlayItem['kind']; label: string; hint: string }[] = [
+  { kind: 'readout', label: 'Readout', hint: 'Numbers from any channel or expression' },
+  { kind: 'adi', label: 'Horizon', hint: 'Artificial horizon, optional speed/altitude/heading tapes' },
+  { kind: 'sticks', label: 'Pilot sticks', hint: 'Stick positions (AETR) and channel 5–8 sliders' },
+];
+
+/** A new widget (a readout until its type is changed in its menu). */
+export const newWidget = (at?: Partial<NRect>): OverlayItem => newReadout(at);
+
+/**
+ * Changes a widget's type in place: same id, position and log (the size is the new
+ * type's default); the new
+ * type's own settings start from their defaults (or what the widget had before).
+ */
+export function convertWidget(item: OverlayItem, kind: OverlayItem['kind']): OverlayItem {
+  if (item.kind === kind) return item;
+  const fresh = kind === 'readout' ? newReadout() : kind === 'adi' ? newAdi() : newSticks();
+  return {
+    // Same place, the new type's default size (a readout strip is too small for a horizon).
+    ...fresh, ...item, kind, id: item.id,
+    rect: { x: Math.max(0, Math.min(item.rect.x, 1 - fresh.rect.w)), y: Math.max(0, Math.min(item.rect.y, 1 - fresh.rect.h)), w: fresh.rect.w, h: fresh.rect.h },
+    style: { ...item.style, opacity: kind === 'adi' && item.kind === 'readout' ? 0 : item.style.opacity },
+    lines: item.lines ?? fresh.lines,
+    hud: item.hud ?? fresh.hud, tapes: item.tapes ?? fresh.tapes,
+    stickMode: item.stickMode ?? fresh.stickMode, aux: item.aux ?? fresh.aux, values: item.values ?? fresh.values,
+  };
+}
+
 interface OverlayState {
   byWindow: Record<string, OverlayItem[]>;
   editing: string | null;            // window id in edit mode (one at a time)

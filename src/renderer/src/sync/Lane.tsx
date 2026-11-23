@@ -16,6 +16,8 @@ export interface LaneProps {
   suggestion: number | null;
   selected: boolean;
   dim?: string | null;          // overlay text (e.g. "not synced")
+  /** Trimmed range (stream time): outside it is shaded. */
+  trim?: [number, number] | null;
   /** Lane time → displayed time for tick labels (Aligned mode shows master time). */
   toDisplay?: (t: number) => number;
   fromDisplay?: (t: number) => number;
@@ -96,6 +98,19 @@ export function Lane(p: LaneProps) {
         let mn = 0, mx = 0;
         for (let b = ba; b <= bb; b++) { if (wf.min[b]! < mn) mn = wf.min[b]!; if (wf.max[b]! > mx) mx = wf.max[b]!; }
         ctx.fillRect(x, mid - mx * amp, 1, Math.max(1, (mx - mn) * amp));
+      }
+    }
+
+    // Trim: shade what is cut, bracket the kept range.
+    if (p.trim) {
+      const xa = X(p.trim[0]), xb = X(p.trim[1]);
+      ctx.fillStyle = 'rgba(6,8,12,0.72)';
+      if (xa > 0) ctx.fillRect(0, 0, Math.min(w, xa), H - 14);
+      if (xb < w) ctx.fillRect(Math.max(0, xb), 0, w - Math.max(0, xb), H - 14);
+      ctx.strokeStyle = '#ff9f43'; ctx.lineWidth = 2;
+      for (const [x, d] of [[xa, 1], [xb, -1]] as const) {
+        if (x < -5 || x > w + 5) continue;
+        ctx.beginPath(); ctx.moveTo(x + d * 6, 1); ctx.lineTo(x, 1); ctx.lineTo(x, H - 15); ctx.lineTo(x + d * 6, H - 15); ctx.stroke();
       }
     }
 

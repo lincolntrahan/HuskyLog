@@ -3,7 +3,7 @@ import { holdAt, interpAt, medianDt } from '@core/series/series';
 import { formatValue } from '@core/overlay/format';
 import { channelExists, loadChannel, primaryLog, useLogs } from '../data/logs';
 import { loadExpression, useExpressions } from '../data/expressions';
-import { masterToLocal } from '../data/sync';
+import { inTrim, masterToLocal } from '../data/sync';
 import { fmtTime } from '../data/timeline';
 import { sampleAngleAt } from '../data/track';
 import type { AdiState } from '../adi/drawAdi';
@@ -81,6 +81,8 @@ export function lineValue(line: ReadoutLine, item: OverlayItem, tMaster: number)
   const local = stream ? masterToLocal(stream, tMaster) : tMaster;
   const unit = line.unit ?? '';
   const withUnit = (s: string) => (unit && s !== '–' ? `${s} ${unit}` : s);
+  // Trimmed out: no value (time sources still show).
+  if (stream && !inTrim(stream, local) && !(r.kind === 'special' && (r.which === 'time' || r.which === 'local'))) return { label: line.label, text: '–' };
   switch (r.kind) {
     case 'loading': return { label: line.label, text: '…' };
     case 'error': return { label: line.label, text: '?', error: r.message };
@@ -104,6 +106,7 @@ export function adiState(item: OverlayItem, tMaster: number): AdiState | null {
   const stream = streamOf(item);
   if (!stream) return null;
   const local = masterToLocal(stream, tMaster);
+  if (!inTrim(stream, local)) return null;
   const s = (id: string): SeriesRes | null => { const r = resolveSource(stream, id); return r.kind === 'series' ? r : null; };
   const roll = s('ATT.Roll'), pitch = s('ATT.Pitch'), yaw = s('ATT.Yaw');
   if (!roll || !pitch) return null;
@@ -154,6 +157,7 @@ export function sticksState(item: OverlayItem, tMaster: number): SticksState | n
   const stream = streamOf(item);
   if (!stream) return null;
   const local = masterToLocal(stream, tMaster);
+  if (!inTrim(stream, local)) return null;
   const get = paramGetter(stream, local);
   const map = rcMap(get);
   let loading = false;

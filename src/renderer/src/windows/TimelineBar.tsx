@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { installGlobalKeys } from '../keys';
 import { useLogs } from '../data/logs';
 import { fmtTime, timeDomain, useTimeline } from '../data/timeline';
+import { stepReview } from '../data/step';
+import { StepButtons } from '../ui/StepButtons';
 
 const SPEEDS = [0.1, 0.25, 0.5, 1, 2, 4, 8];
 
@@ -51,6 +53,7 @@ export function TimelineBar() {
       <select value={speed} onChange={(e) => setSpeed(Number(e.target.value))} aria-label="Playback speed">
         {SPEEDS.map((s) => <option key={s} value={s}>{s}×</option>)}
       </select>
+      <StepButtons onStep={stepReview} />
       <span className="mono time">{fmtTime(t)}</span>
       <div ref={wrapRef} className="scrub-wrap" onMouseDown={onDown} onContextMenu={(e) => e.preventDefault()} title="Drag to scrub · right-drag to crop the workspace to a time range">
         <input type="range" min={a} max={b} step={0.01} value={Math.min(b, Math.max(a, t))} onChange={(e) => setT(Number(e.target.value))} aria-label="Playhead" className="scrub" />

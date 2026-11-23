@@ -1,6 +1,6 @@
 import type { VideoZoom } from '@core/overlay/zoom';
 import { mediaSource, useMedia } from '../data/media';
-import { masterToLocal, streamSolution } from '../data/sync';
+import { inTrim, masterToLocal, streamSolution } from '../data/sync';
 import { fmtTime } from '../data/timeline';
 import { FrameReader } from '../video/FrameReader';
 import { shrink } from '../video/scale';
@@ -53,6 +53,7 @@ export async function drawVideoAt(ctx: Ctx, stream: string | undefined, zoom: Vi
   const local = masterToLocal(stream, t);
   if (local < vi.startS - 0.5 / fps) { drawMessage(ctx, w, h, `Video starts in ${fmtTime(vi.startS - local)}`); return; }
   if (local > vi.endS + 1 / fps) { drawMessage(ctx, w, h, `Video ended ${fmtTime(local - vi.endS)} ago`); return; }
+  if (!inTrim(stream, local)) { drawMessage(ctx, w, h, 'Trimmed'); return; }
 
   const reader = readers.get(stream);
   const img: VideoFrame | ImageBitmap | null = reader ? await reader.frameAt(local) : await src.frame(src.indexAt(local));

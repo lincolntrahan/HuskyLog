@@ -7,7 +7,7 @@ import { adjustedSize, isIdentity } from '@core/video/adjust';
 import { useOverlays, type OverlayItem } from '../overlay/model';
 import { NO_ZOOM, panBy, zoomAt, zoomTransform, type VideoZoom } from '@core/overlay/zoom';
 import { useMedia, mediaSource } from '../data/media';
-import { masterToLocal, streamSolution, useSync } from '../data/sync';
+import { inTrim, masterToLocal, streamSolution, useSync } from '../data/sync';
 import { useApp } from '../store';
 import { fmtTime, useTimeline } from '../data/timeline';
 
@@ -158,6 +158,13 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
         setOverlay(msg); d.overlay = msg;
         if (!video.paused) video.pause();
         setShowing('canvas'); d.showing = 'canvas';
+        return;
+      }
+      if (!inTrim(stream, local)) {
+        setOverlay('Trimmed (set on the Sync tab)'); d.overlay = 'trimmed';
+        if (!video.paused) video.pause();
+        setShowing('canvas'); d.showing = 'canvas';
+        lastLocal = local;
         return;
       }
       setOverlay(null); d.overlay = null;

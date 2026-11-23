@@ -9,7 +9,12 @@ import { useMedia } from './media';
  * Phase 6 saves this in the workspace file.
  */
 export interface SyncEvent { id: string; name: string; color: string }
-export interface StreamOptions { offsetOnly?: boolean; nudge?: number }
+export interface StreamOptions {
+  offsetOnly?: boolean;
+  nudge?: number;
+  /** Kept range of the stream (its own time, seconds); outside it is left out everywhere. */
+  trim?: [number, number];
+}
 
 const EVENT_COLORS = ['#ffb000', '#ff5c8a', '#3ddc97', '#c792ea', '#7fdbff', '#ff7a45', '#e6db74'];
 
@@ -104,3 +109,8 @@ export function restoreSync(s: { events: SyncEvent[]; markers: Record<string, { 
   const next = { events: s.events, markers: s.markers, options: s.options, reference: s.reference };
   useSync.setState({ ...next, solution: resolve(next) });
 }
+
+/** A stream's trim (its own time), or null when untrimmed. */
+export const trimOf = (id: string): [number, number] | null => useSync.getState().options[id]?.trim ?? null;
+/** True when stream-local time t is inside the stream's trim (or there is none). */
+export const inTrim = (id: string, local: number): boolean => { const r = trimOf(id); return !r || (local >= r[0] - 1e-9 && local <= r[1] + 1e-9); };

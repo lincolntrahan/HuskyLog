@@ -33,7 +33,7 @@ export interface WorkspaceStream {
 export interface WorkspaceSync {
   events: { id: string; name: string; color: string }[];
   markers: Record<string, { eventId: string; t: number }[]>;
-  options: Record<string, { offsetOnly?: boolean; nudge?: number }>;
+  options: Record<string, { offsetOnly?: boolean; nudge?: number; trim?: [number, number] }>;
   reference: string | null;
 }
 

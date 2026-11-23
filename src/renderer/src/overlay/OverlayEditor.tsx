@@ -1,7 +1,7 @@
 import { SourceMenu } from '../ui/SourceMenu';
 import { isValidFormat } from '@core/overlay/format';
 import { useLogs } from '../data/logs';
-import { useOverlays, type OverlayItem, type ReadoutLine } from './model';
+import { convertWidget, useOverlays, WIDGET_TYPES, type OverlayItem, type ReadoutLine } from './model';
 import { lineValue, streamOf } from './values';
 import { useTimeline } from '../data/timeline';
 
@@ -20,8 +20,12 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
   return (
     <div className={`overlay-editor side-${side}`} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
       <div className="oe-head">
-        <b>{item.kind === 'adi' ? 'Horizon overlay' : item.kind === 'sticks' ? 'Pilot sticks' : 'Readout'}</b>
-        <button title="Delete overlay (Del)" onClick={() => useOverlays.getState().remove(win, item.id)}>Delete</button>
+        <label className="oe-type" title={WIDGET_TYPES.find((w) => w.kind === item.kind)?.hint}><b>Widget</b>
+          <select value={item.kind} onChange={(e) => useOverlays.getState().set(win, (useOverlays.getState().byWindow[win] ?? []).map((o) => (o.id === item.id ? convertWidget(o, e.target.value as OverlayItem['kind']) : o)))} aria-label="Widget type">
+            {WIDGET_TYPES.map((w) => <option key={w.kind} value={w.kind}>{w.label}</option>)}
+          </select>
+        </label>
+        <button title="Delete widget (Del)" onClick={() => useOverlays.getState().remove(win, item.id)}>Delete</button>
       </div>
       {ready.length > 1 && (
         <label>Log <select value={stream ?? ''} onChange={(e) => patch({ stream: e.target.value })}>
