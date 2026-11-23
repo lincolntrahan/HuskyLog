@@ -7,6 +7,8 @@ import { masterToLocal } from '../data/sync';
 import { fmtTime } from '../data/timeline';
 import { sampleAngleAt } from '../data/track';
 import type { AdiState } from '../adi/drawAdi';
+import { paramsAt } from '@core/dataflash/summary';
+import { centred, rcCal, rcMap, unipolar, type SticksInput } from '@core/overlay/sticks';
 import type { OverlayItem, ReadoutLine } from './model';
 
 /**
@@ -119,5 +121,64 @@ export function adiState(item: OverlayItem, tMaster: number): AdiState | null {
     mode: sum?.modes.find((m) => local >= m.t0 && local < m.t1)?.name,
     armed: sum ? sum.armed.some(([a, b]) => local >= a && local < b) : undefined,
     speedLabel: 'm/s', altLabel: 'm',
+  };
+}
+
+// ---------------------------------------------------------------- pilot sticks
+
+export interface StickAxis { pwm: number; ch: number }
+export interface SticksState {
+  input: SticksInput;
+  /** Raw PWM of the four primary controls (µs) and their channel numbers. */
+  raw: { roll: StickAxis; pitch: StickAxis; throttle: StickAxis; yaw: StickAxis };
+  /** Channels 5–8: position 0…1 (min…max), trim position, PWM. */
+  aux: { ch: number; v: number; trim: number; pwm: number }[];
+  loading: boolean;
+}
+
+// Parameter lookup per log and whole second (RC calibration rarely changes in flight).
+const paramMemo = new Map<string, { key: number; get: (n: string) => number | undefined }>();
+function paramGetter(stream: string, local: number): (n: string) => number | undefined {
+  const params = useLogs.getState().logs[stream]?.summary?.params ?? [];
+  const key = Math.floor(local);
+  const m = paramMemo.get(stream);
+  if (m && m.key === key) return m.get;
+  const at = paramsAt(params, local);
+  const get = (n: string) => at.get(n)?.value;
+  paramMemo.set(stream, { key, get });
+  return get;
+}
+
+/** Stick positions and aux sliders from the log's RC input (RCIN) at master time t. */
+export function sticksState(item: OverlayItem, tMaster: number): SticksState | null {
+  const stream = streamOf(item);
+  if (!stream) return null;
+  const local = masterToLocal(stream, tMaster);
+  const get = paramGetter(stream, local);
+  const map = rcMap(get);
+  let loading = false;
+  const pwm = (ch: number): number => {
+    const id = ch <= 14 ? `RCIN.C${ch}` : `RCI2.C${ch}`;
+    if (!channelExists({ stream, id })) return NaN;
+    const r = resolveSource(stream, id);
+    if (r.kind === 'loading') loading = true;
+    return r.kind === 'series' ? sampleSeries(r, local, item.sample ?? 'interp') : NaN;
+  };
+  const p = { roll: pwm(map.roll), pitch: pwm(map.pitch), throttle: pwm(map.throttle), yaw: pwm(map.yaw) };
+  // ArduPilot: elevator stick forward = low PWM; shown with forward = up.
+  const pitchSign = item.flipElevator ? 1 : -1;
+  const input: SticksInput = {
+    roll: centred(p.roll, rcCal(get, map.roll)),
+    pitch: pitchSign * centred(p.pitch, rcCal(get, map.pitch)),
+    throttle: unipolar(p.throttle, rcCal(get, map.throttle)),
+    yaw: centred(p.yaw, rcCal(get, map.yaw)),
+  };
+  const aux = [5, 6, 7, 8].map((ch) => {
+    const c = rcCal(get, ch), v = pwm(ch);
+    return { ch, v: unipolar(v, c), trim: unipolar(c.trim, c), pwm: v };
+  });
+  return {
+    input, aux, loading,
+    raw: { roll: { pwm: p.roll, ch: map.roll }, pitch: { pwm: p.pitch, ch: map.pitch }, throttle: { pwm: p.throttle, ch: map.throttle }, yaw: { pwm: p.yaw, ch: map.yaw } },
   };
 }

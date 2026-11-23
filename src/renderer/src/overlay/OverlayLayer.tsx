@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { dragRect, snapRect, type Handle, type NRect } from '@core/overlay/rect';
 import { useTimeline } from '../data/timeline';
 import { drawOverlays } from './draw';
-import { newAdi, newReadout, useOverlays, type OverlayItem } from './model';
+import { newAdi, newReadout, newSticks, useOverlays, type OverlayItem } from './model';
 import { lineValue, useOverlayData } from './values';
 import { OverlayEditor } from './OverlayEditor';
 
@@ -123,7 +123,7 @@ export function OverlayLayer({ api, initial }: { api: ParamsApi; initial?: Overl
             <div key={it.id} className={`overlay-box${it.id === selected ? ' sel' : ''}`} data-overlay={it.id}
               style={{ left: `${it.rect.x * 100}%`, top: `${it.rect.y * 100}%`, width: `${it.rect.w * 100}%`, height: `${it.rect.h * 100}%` }}
               onMouseDown={(e) => startDrag(e, it, 'move')}>
-              <span className="overlay-tag">{it.kind === 'adi' ? 'Horizon' : 'Readout'}</span>
+              <span className="overlay-tag">{it.kind === 'adi' ? 'Horizon' : it.kind === 'sticks' ? 'Sticks' : 'Readout'}</span>
               {it.id === selected && HANDLES.map((h) => (
                 <span key={h} className={`overlay-handle h-${h}`} data-handle={h} onMouseDown={(e) => startDrag(e, it, h)} />
               ))}
@@ -132,7 +132,8 @@ export function OverlayLayer({ api, initial }: { api: ParamsApi; initial?: Overl
           <div className="overlay-toolbar" onMouseDown={(e) => e.stopPropagation()}>
             <button onClick={() => st().add(win, newReadout())} title="Add a numeric readout">＋ Readout</button>
             <button onClick={() => st().add(win, newAdi())} title="Add an artificial-horizon overlay">＋ Horizon</button>
-            <span className="muted small">drag to move (Alt: no snap) · handles resize · arrows nudge · Del removes</span>
+            <button onClick={() => st().add(win, newSticks())} title="Add the pilot's stick positions (AETR) and channel 5–8 sliders, from the log's RC input">＋ Sticks</button>
+            <span className="muted small" title="drag to move (Alt: no snap) · handles resize · arrows nudge · Del removes">drag to move (Alt: no snap) · handles resize · arrows nudge · Del removes</span>
             <button className="primary" onClick={() => st().setEditing(null)}>Done</button>
           </div>
           {sel && <OverlayEditor win={win} item={sel} side={sel.rect.x + sel.rect.w / 2 < 0.5 ? 'right' : 'left'} />}

@@ -235,8 +235,10 @@ progress { width: 140px; }
 .h-nw { left: 0; top: 0; cursor: nwse-resize; } .h-n { left: 50%; top: 0; cursor: ns-resize; } .h-ne { left: 100%; top: 0; cursor: nesw-resize; }
 .h-e { left: 100%; top: 50%; cursor: ew-resize; } .h-se { left: 100%; top: 100%; cursor: nwse-resize; } .h-s { left: 50%; top: 100%; cursor: ns-resize; }
 .h-sw { left: 0; top: 100%; cursor: nesw-resize; } .h-w { left: 0; top: 50%; cursor: ew-resize; }
-.overlay-toolbar { position: absolute; left: 6px; bottom: 6px; right: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 4px 6px; background: rgba(27, 31, 38, 0.92); border: 1px solid var(--border); border-radius: 6px; }
+.overlay-toolbar { position: absolute; left: 6px; bottom: 6px; right: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; padding: 4px 6px; background: rgba(27, 31, 38, 0.92); border: 1px solid var(--border); border-radius: 6px; }
 .overlay-toolbar .primary { margin-left: auto; }
+.overlay-toolbar > .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.overlay-toolbar > button { flex: none; }
 .small { font-size: 11px; }
 .overlay-editor.side-left { right: auto; left: 6px; }
 .overlay-editor { position: absolute; top: 6px; right: 6px; max-width: calc(100% - 12px); max-height: calc(100% - 56px); overflow: auto; display: grid; gap: 6px; padding: 8px; background: rgba(27, 31, 38, 0.97); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }

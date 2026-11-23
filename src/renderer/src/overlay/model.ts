@@ -26,7 +26,7 @@ export interface OverlayStyle {
 }
 export interface OverlayItem {
   id: string;
-  kind: 'readout' | 'adi';
+  kind: 'readout' | 'adi' | 'sticks';
   rect: NRect;
   style: OverlayStyle;
   /** Stream the sources come from (default: the primary log). */
@@ -40,6 +40,14 @@ export interface OverlayItem {
   hud?: boolean;
   /** Which way the camera under this horizon looks (backward: tail cams). */
   facing?: CameraFacing;
+  /** Sticks: transmitter mode (2: throttle on the left). */
+  stickMode?: 1 | 2;
+  /** Sticks: show the channel 5–8 sliders. */
+  aux?: boolean;
+  /** Sticks: print PWM values (µs). */
+  values?: boolean;
+  /** Sticks: elevator stick forward gives high PWM (ArduPilot's convention is low). */
+  flipElevator?: boolean;
 }
 
 export const DEFAULT_STYLE: OverlayStyle = { color: '#ffffff', bg: '#000000', opacity: 0.45, align: 'left' };
@@ -58,6 +66,10 @@ export function newReadout(at?: Partial<NRect>): OverlayItem {
 }
 export function newAdi(at?: Partial<NRect>): OverlayItem {
   return { id: newId(), kind: 'adi', rect: { x: 0.62, y: 0.55, w: 0.35, h: 0.42, ...at }, style: { ...DEFAULT_STYLE, opacity: 0 }, tapes: false, hud: true };
+}
+
+export function newSticks(at?: Partial<NRect>): OverlayItem {
+  return { id: newId(), kind: 'sticks', rect: { x: 0.03, y: 0.62, w: 0.34, h: 0.34, ...at }, style: { ...DEFAULT_STYLE, opacity: 0.35 }, stickMode: 2, aux: true, values: false };
 }
 
 interface OverlayState {
