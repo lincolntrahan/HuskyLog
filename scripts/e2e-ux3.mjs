@@ -62,6 +62,18 @@ try {
   const s7 = await vstate();
   check('Review keys: "." +1 frame, Shift+"," −10 frames', s6.i === s5.i + 1 && s7.i === s6.i - 10, `${s5.i} → ${s6.i} → ${s7.i}`);
 
+  // Pause after playing: the frame shown is the one at the playhead (it used to show the frame from before Play).
+  await main.evaluate(() => { const v = document.querySelector('.video-panel video'); window.__seeks = 0; v.addEventListener('seeking', () => window.__seeks++); window.__hl.timeline.getState().setPlaying(true); });
+  await sleep(4000);
+  await main.evaluate(() => window.__hl.timeline.getState().setPlaying(false));
+  await sleep(1200);
+  const pz = await main.evaluate((vid) => {
+    const h = window.__hl, sol = h.syncStore.getState().solution.streams[vid];
+    const local = (h.timeline.getState().t - sol.b) / sol.a;
+    return { drawn: h['video:video-0'].drawn, want: h.mediaSource(vid).indexAt(local), seeks: window.__seeks };
+  }, ids.vid);
+  check('pausing shows the frame at the playhead (no jump); playback seeks rarely', pz.drawn === pz.want && pz.seeks <= 5, `drawn ${pz.drawn}, playhead frame ${pz.want}, ${pz.seeks} seeks in 4 s`);
+
   // ---------------------------------------------------------------- Sync stepping + trim
   await main.click('button[role=tab]:has-text("Sync")');
   await sleep(800);
