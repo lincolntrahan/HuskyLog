@@ -32,7 +32,8 @@
     "e2e:features": "node scripts/e2e-features.mjs",
     "e2e:features2": "node scripts/e2e-features2.mjs",
     "e2e:sticks": "node scripts/e2e-sticks.mjs",
-    "e2e:ux3": "node scripts/e2e-ux3.mjs"
+    "e2e:ux3": "node scripts/e2e-ux3.mjs",
+    "e2e:presets": "node scripts/e2e-presets.mjs"
   },
   "devDependencies": {
     "@cesium/core": "^0.1.1",

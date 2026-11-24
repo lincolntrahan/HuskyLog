@@ -1,3 +1,4 @@
+import { fieldDisplay } from '@core/ardupilot/display';
 import { create } from 'zustand';
 import type { DecodedSeries } from '@core/dataflash/types';
 import type { ChannelInfo, LogSummary } from '@core/dataflash/summary';
@@ -100,16 +101,21 @@ export function parseChannelId(id: string): { type: string; instance: number | n
 }
 
 export interface LoadedChannel extends Series { unit: string; info?: ChannelInfo }
+const converted = new WeakMap<ArrayLike<number>, Float64Array>();
 
 export async function loadChannel(ref: ChannelRef): Promise<LoadedChannel | null> {
   const p = parseChannelId(ref.id);
   if (!p) return null;
   const all = await decoded(ref.stream, p.type);
   const s = all.find((x) => x.instance === null || x.instance === (p.instance ?? 0)) ?? null;
-  const v = s?.fields[p.field];
-  if (!s || !v) return null;
+  const raw = s?.fields[p.field];
+  if (!s || !raw) return null;
+  // Display conversions (e.g. AETR outputs as PWM), applied once per decoded field.
+  const disp = fieldDisplay(p.type, p.field);
+  let v = raw;
+  if (disp) { v = converted.get(raw) ?? Float64Array.from(raw, disp.f); converted.set(raw, v); }
   const info = useLogs.getState().logs[ref.stream]?.summary?.channels.find((c) => c.id === ref.id);
-  return { t: s.time, v, unit: s.units[p.field] ?? '', info };
+  return { t: s.time, v, unit: disp?.unit ?? s.units[p.field] ?? '', info };
 }
 
 export function channelExists(ref: ChannelRef): boolean {
