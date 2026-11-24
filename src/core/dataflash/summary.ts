@@ -1,3 +1,4 @@
+import { fieldDisplay } from '../ardupilot/display';
 import { EVENT_NAMES, HOUSEKEEPING_PARAMS, modeName, servoFunctionName, vehicleFromFirmware, type Vehicle } from '../ardupilot/tables';
 import { columnUnit } from './decoder';
 import { decodeRows } from './decoder';
@@ -90,7 +91,7 @@ export function summarize(bytes: Uint8Array, index: LogIndex): LogSummary {
         if (rc && (def.name === 'RCOU' || def.name === 'RCO2' || def.name === 'RCO3')) {
           label = servoFunctionName(servoFn.get(Number(rc[1])) ?? 0) ?? undefined;
         }
-        channels.push({ id, type: def.name, instance: multi ? inst : null, field, unit: columnUnit(index, def, c), label, count, rateHz: dur > 0 ? count / dur : 0 });
+        channels.push({ id, type: def.name, instance: multi ? inst : null, field, unit: fieldDisplay(def.name, field)?.unit ?? columnUnit(index, def, c), label, count, rateHz: dur > 0 ? count / dur : 0 });
       }
     }
   }

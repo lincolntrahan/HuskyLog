@@ -1396,3 +1396,38 @@ harness pass. In Phase 5, the tests now add widgets instead of using
 "＋ Readout" / "＋ Horizon", and the pop-out arrow step expects
 frame-exact stepping. It passes apart from the four window-position checks
 that also fail on `main` on this machine.
+
+## Appendix O. Readout presets, AETR in PWM (2026-11-24)
+
+**Readout presets** (`overlay/presets.ts`, `PresetBar` in the readout widget's menu):
+- **Built-ins:**
+  - Propulsion: RPM, voltage, current, power, throttle, ESC temperature,
+    mAh used, Wh used.
+  - Flight state: altitude, airspeed, G load, climb rate, ground speed.
+  - Radio: RSSI, RSSI dBm, link quality, packet rate.
+- **Fallback sources:** each built-in line lists fallbacks (for example,
+  `ESC.RPM` then `RPM.rpm1`; `-XKF1.VD` then `-NKF1.VD`, `TECS.dh`, `-GPS.VZ`).
+  Applying takes the first the log has. A line with none is still added, so it
+  shows what to retarget.
+- **RSSI dBm and packet rate** aren't in ArduPilot's RSSI log message (RXRSSI
+  0–1, RXLQ %). Those lines start empty for the user to pick a channel.
+- **Applying:** "Replace lines" or "Add lines". The widget grows to fit (about
+  4 % of the window height per line).
+- **Your own presets:** "Save lines as preset…", "Update", "Delete". They are
+  stored on this computer (localStorage), not in the workspace.
+
+**AETR in PWM** (`core/ardupilot/display.ts`, applied in `loadChannel` and the
+summary's units):
+- Ail, Elev, Rudd and Steer go from ±4500 to v / 9 + 1500 µs.
+- Thr goes from 0–100 % to 1000 + 10·v µs.
+- Graphs, readouts, expressions and Sync lanes all see the converted values.
+- Flap and the other fields are unchanged.
+
+**Verified:** `scripts/e2e-presets.mjs` (13 checks) covers:
+- AETR ranges and units (raw ±4500 now reads 1000–2000 µs);
+- the three built-ins resolving to this log's channels with real values;
+- Add vs Replace and the box growing;
+- save, update, apply elsewhere, surviving a restart, delete.
+
+Unit tests (97), Phases 4, 6 and 7, e2e:features, sticks and ux3 pass. Phase 5
+and the UX harness pass apart from their known machine-state checks.

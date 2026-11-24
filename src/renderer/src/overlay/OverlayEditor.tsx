@@ -1,4 +1,5 @@
 import { SourceMenu } from '../ui/SourceMenu';
+import { PresetBar } from './PresetBar';
 import { isValidFormat } from '@core/overlay/format';
 import { useLogs } from '../data/logs';
 import { convertWidget, useOverlays, WIDGET_TYPES, type OverlayItem, type ReadoutLine } from './model';
@@ -34,6 +35,11 @@ export function OverlayEditor({ win, item, side }: { win: string; item: OverlayI
       )}
       {item.kind === 'readout' && (
         <>
+          <PresetBar lines={lines} stream={stream} onLines={(l) => {
+            // Grow the box to fit the lines (about 4 % of the window height each).
+            const h = Math.min(0.92, Math.max(item.rect.h, 0.04 * l.length + 0.03));
+            patch({ lines: l, rect: { ...item.rect, h, y: Math.min(item.rect.y, 1 - h) } });
+          }} />
           <table className="oe-lines">
             <thead><tr><th>Label</th><th title="A channel (ATT.Roll), a named or inline expression, or @mode, @armed, @time, @local">Source</th><th>Format</th><th>Unit</th><th>Now</th><th /></tr></thead>
             <tbody>

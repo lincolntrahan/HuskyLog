@@ -356,3 +356,4 @@ button.link { background: none; border: none; color: #4ea1ff; padding: 0; text-d
 .opt-row { display: flex; gap: 4px; align-items: center; flex-wrap: nowrap; }
 .opt-row button { padding: 2px 7px; font-size: 12px; }
 .oe-type { display: inline-flex; gap: 8px; align-items: center; }
+.oe-presets { display: grid; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
