@@ -172,11 +172,23 @@ export function VideoPanel({ api, params }: IDockviewPanelProps<{ video?: VideoC
         if (video.getAttribute('src') !== v.url) video.src = v.url;
         video.muted = cfg.muted;
         const rate = tl.speed / s.a;
-        if (Math.abs(video.playbackRate - rate) > 1e-6) video.playbackRate = rate;
-        if (video.paused) { video.currentTime = local; void video.play().catch(() => undefined); }
-        else if (Math.abs(video.currentTime - local) > 1 / fps) video.currentTime = local; // re-lock beyond 1 frame
+        if (video.paused) { video.playbackRate = rate; video.currentTime = local; void video.play().catch(() => undefined); }
+        else {
+          // Stay locked to the timeline by nudging the speed (up to ±20 %); seek only when far off.
+          // Seeking on every 1-frame drift (normal while playing) meant ~15 seeks/s and stutter.
+          const drift = video.currentTime - local;
+          if (Math.abs(drift) > 0.3) { video.currentTime = local; video.playbackRate = rate; }
+          else {
+            const want = rate * (1 - Math.max(-0.2, Math.min(0.2, drift * 2.5)));
+            if (Math.abs(video.playbackRate - want) > rate * 0.005) video.playbackRate = want;
+          }
+        }
         if (isIdentity(adjRef.current)) { stopPaint(); setShowing('video'); d.showing = 'video'; }
         else { startPaint(); setShowing('canvas'); d.showing = 'canvas'; }
+        // The canvas isn't updated while playing: force a redraw at the first paused update,
+        // even if the playhead stops exactly where the last playing tick left it.
+        lastLocal = NaN;
+        return;
       } else {
         if (!video.paused) video.pause();
         stopPaint();
